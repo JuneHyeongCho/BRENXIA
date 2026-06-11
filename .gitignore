@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Secrets & credentials (NEVER commit these)
+.env
+config/credentials.json
+config/*.json
+
+# Local database
+data/real_db.json
+data/*.json

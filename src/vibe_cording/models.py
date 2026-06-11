@@ -1,0 +1,36 @@
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+@dataclass
+class Project:
+    project_id: str
+    client_name: str
+    brand_name: str
+    project_name: str
+    pm_email: str
+    importance: str  # "Standard" or "Critical"
+    status: str      # "Proposal", "Execution", "Paused", "Lost", "Closure"
+    pd_email: str    # Planning Director email
+    cd_email: str    # Creative Director email
+    members: List[str] = field(default_factory=list)
+    drive_folder_id: Optional[str] = None
+    spreadsheet_id: Optional[str] = None
+
+@dataclass
+class WBSTask:
+    task_id: str
+    project_id: str
+    name: str
+    status: str       # "Pending", "In Progress", "Review Pending", "Approved"
+    start_date: str
+    end_date: str
+    assignee: str
+
+@dataclass
+class ResourceMM:
+    project_id: str
+    employee_name: str
+    role: str         # "Executive", "Director", "Senior", "Manager"
+    mm_value: float   # Man-Month fraction (e.g. 0.5)
+    days_input: float # Number of days input
+    cost: float       # Calculated monthly cost based on role and mm_value
