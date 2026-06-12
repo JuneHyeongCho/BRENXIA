@@ -1,6 +1,8 @@
 import os
 import logging
 import requests
+import concurrent.futures
+import threading
 from typing import List, Dict, Any, Optional
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -9,13 +11,20 @@ from .models import Project, ResourceMM
 logger = logging.getLogger("vibe_cording.google_workspace")
 
 class GoogleWorkspaceClient:
-    def __init__(self, credentials_path: str, chat_webhook_url: Optional[str] = None, shared_drive_id: str = "root", is_mock: bool = True):
+    def __init__(
+        self,
+        credentials_path: str,
+        chat_webhook_url: Optional[str] = None,
+        shared_drive_id: str = "root",
+        company_master_email: str = "brenxia@brenxia.com",
+        is_mock: bool = True
+    ):
         self.credentials_path = credentials_path
         self.chat_webhook_url = chat_webhook_url
         self.shared_drive_id = shared_drive_id
+        self.company_master_email = company_master_email
         self.is_mock = is_mock
-        self.drive_service = None
-        self.sheets_service = None
+        self._thread_local = threading.local()
 
         if self.is_mock:
             logger.info("Initializing GoogleWorkspaceClient in MOCK simulation mode.")
@@ -36,14 +45,54 @@ class GoogleWorkspaceClient:
         ]
         
         # Load credentials from JSON key file
-        credentials = service_account.Credentials.from_service_account_file(
+        self.credentials = service_account.Credentials.from_service_account_file(
             self.credentials_path,
             scopes=scopes
         )
         
-        # Build API clients
-        self.drive_service = build('drive', 'v3', credentials=credentials)
-        self.sheets_service = build('sheets', 'v4', credentials=credentials)
+        # Build Directory API client credentials
+        try:
+            self.directory_creds = service_account.Credentials.from_service_account_file(
+                self.credentials_path,
+                scopes=['https://www.googleapis.com/auth/admin.directory.user.readonly'],
+                subject=self.company_master_email
+            )
+        except Exception as dir_err:
+            logger.error(f"Failed to initialize Google Workspace Directory API credentials: {dir_err}")
+            self.directory_creds = None
+
+    @property
+    def drive_service(self):
+        if self.is_mock:
+            return None
+        if not hasattr(self._thread_local, 'drive_service'):
+            import httplib2
+            import google_auth_httplib2
+            http = google_auth_httplib2.AuthorizedHttp(self.credentials, http=httplib2.Http())
+            self._thread_local.drive_service = build('drive', 'v3', http=http, cache_discovery=False)
+        return self._thread_local.drive_service
+
+    @property
+    def sheets_service(self):
+        if self.is_mock:
+            return None
+        if not hasattr(self._thread_local, 'sheets_service'):
+            import httplib2
+            import google_auth_httplib2
+            http = google_auth_httplib2.AuthorizedHttp(self.credentials, http=httplib2.Http())
+            self._thread_local.sheets_service = build('sheets', 'v4', http=http, cache_discovery=False)
+        return self._thread_local.sheets_service
+
+    @property
+    def directory_service(self):
+        if self.is_mock or not hasattr(self, 'directory_creds') or not self.directory_creds:
+            return None
+        if not hasattr(self._thread_local, 'directory_service'):
+            import httplib2
+            import google_auth_httplib2
+            http = google_auth_httplib2.AuthorizedHttp(self.directory_creds, http=httplib2.Http())
+            self._thread_local.directory_service = build('admin', 'directory_v1', http=http, cache_discovery=False)
+        return self._thread_local.directory_service
 
     def _get_or_create_folder(self, name: str, parent_id: str) -> str:
         """
@@ -98,12 +147,12 @@ class GoogleWorkspaceClient:
         - Subfolders: 00 to 05 standard subdirectories and their archives.
         """
         folder_names = [
-            "00.Client_Materials",
-            "01.Proposals",
-            "02.Planning",
-            "03.Production",
-            "04.Media",
-            "05.Administration",
+            "00.\uace0\uac1d\uc0ac \uc81c\uacf5\uc790\ub8cc",
+            "01.\uc81c\uc548",
+            "02.\uae30\ud68d",
+            "03.\uc81c\uc791",
+            "04.\ubbf8\ub514\uc5b4",
+            "05.\ud589\uc815",
             "06.PMS"
         ]
         
@@ -129,7 +178,7 @@ class GoogleWorkspaceClient:
                 archive_id = f"mock_{folder.lower()}_archive_id"
                 simulated_ids[folder] = sub_id
                 simulated_ids[f"{folder}_archive"] = archive_id
-                logger.info(f"[MOCK] Created subfolder '{folder}' (ID: {sub_id}) and '_previous_version_archive' (ID: {archive_id})")
+                logger.info(f"[MOCK] Created subfolder '{folder}' (ID: {sub_id}) and '_\uc774\uc804\ubc84\uc804_\uc544\uce74\uc774\ube0c' (ID: {archive_id})")
         else:
             try:
                 # 1. Traverse or create "project" folder under root shared drive
@@ -154,36 +203,48 @@ class GoogleWorkspaceClient:
                 simulated_ids["root"] = root_id
                 logger.info(f"[REAL] Created root folder '{root_folder_name}' with ID '{root_id}'")
 
-                # 2. Create subfolders and internal archives
-                for folder in folder_names:
+                # 2. Create subfolders and internal archives in parallel
+                def create_subfolder(folder_name):
                     sub_metadata = {
-                        'name': folder,
+                        'name': folder_name,
                         'mimeType': 'application/vnd.google-apps.folder',
                         'parents': [root_id]
                     }
                     sub_args = {'body': sub_metadata, 'fields': 'id'}
                     if self.shared_drive_id and self.shared_drive_id != "root":
                         sub_args['supportsAllDrives'] = True
-                        
                     sub_file = self.drive_service.files().create(**sub_args).execute()
                     sub_id = sub_file.get('id')
-                    simulated_ids[folder] = sub_id
-                    logger.info(f"[REAL] Created subfolder '{folder}' with ID '{sub_id}'")
+                    logger.info(f"[REAL] Created subfolder '{folder_name}' with ID '{sub_id}'")
+                    return folder_name, sub_id
 
-                    # Create _previous_version_archive folder
+                def create_archive_folder(folder_name, sub_id):
                     archive_metadata = {
-                        'name': '_previous_version_archive',
+                        'name': '_\uc774\uc804\ubc84\uc804_\uc544\uce74\uc774\ube0c',
                         'mimeType': 'application/vnd.google-apps.folder',
                         'parents': [sub_id]
                     }
                     archive_args = {'body': archive_metadata, 'fields': 'id'}
                     if self.shared_drive_id and self.shared_drive_id != "root":
                         archive_args['supportsAllDrives'] = True
-                        
                     archive_file = self.drive_service.files().create(**archive_args).execute()
                     archive_id = archive_file.get('id')
-                    simulated_ids[f"{folder}_archive"] = archive_id
-                    logger.info(f"[REAL] Created archive subfolder inside '{folder}' (ID: {archive_id})")
+                    logger.info(f"[REAL] Created archive subfolder inside '{folder_name}' (ID: {archive_id})")
+                    return folder_name, archive_id
+
+                # Run subfolder creation tasks in parallel
+                with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+                    futures = [executor.submit(create_subfolder, f) for f in folder_names]
+                    for future in concurrent.futures.as_completed(futures):
+                        f_name, s_id = future.result()
+                        simulated_ids[f_name] = s_id
+
+                # Run archive subfolder creation tasks in parallel
+                with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+                    futures = [executor.submit(create_archive_folder, f, simulated_ids[f]) for f in folder_names]
+                    for future in concurrent.futures.as_completed(futures):
+                        f_name, a_id = future.result()
+                        simulated_ids[f"{f_name}_archive"] = a_id
             except Exception as e:
                 logger.error(f"Failed to create Google Drive folders: {e}")
                 raise e
@@ -208,10 +269,9 @@ class GoogleWorkspaceClient:
                 
                 # Emails to share with
                 emails = [project.pm_email, project.pd_email, project.cd_email] + project.members
+                unique_emails = set(filter(None, emails))
                 
-                for email in set(emails):
-                    if not email:
-                        continue
+                def share_one(email):
                     try:
                         permission_metadata = {
                             'type': 'user',
@@ -229,6 +289,10 @@ class GoogleWorkspaceClient:
                         logger.info(f"[REAL] Shared folder permission with user: {email}")
                     except Exception as invite_err:
                         logger.warning(f"[REAL] Failed to share folder permission with {email}: {invite_err}. Skipping.")
+
+                if unique_emails:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(unique_emails)) as executor:
+                        executor.map(share_one, unique_emails)
             except Exception as e:
                 logger.error(f"Failed to sync Google Drive folder permissions: {e}")
                 raise e
@@ -366,50 +430,8 @@ class GoogleWorkspaceClient:
         def build_tab_values(is_total_db: bool, month_num: int = 0) -> list:
             """
             Builds the full row list for one tab with proper Sheets formulas.
-
-            Fixed row map (1-indexed, same on every tab):
-              1-7   : project header block
-              8     : "1. 사전예측" section title
-              9     : Section-1 column header row
-              10    : 사전예측 (manual)
-              11    : 현재 달성치  (formula → pulls from sections 2/3/4)
-              12    : 차액         (formula = row11 - row10)
-              13    : 목표달성율   (formula = row11 / row10)
-              14    : (blank)
-              15    : "2. 월별 매출-매입 누적 종합"
-              16    : month column header row
-              17    : a.매출  총계       (formula = SUM of sub-rows)
-              18    : a.매출  기획/운영  (manual / cross-ref for total_db)
-              19    : a.매출  제작
-              20    : a.매출  매체
-              21    : a.매출  기타
-              22    : b.매입  총계       (formula)
-              23-26 : b.매입  sub-rows
-              27    : c.순매출 총계      (formula = row17 - row22 per column)
-              28-31 : c.순매출 sub-rows  (formula = a_sub - b_sub per column)
-              32    : d.내수율           (formula = IFERROR(c/a))
-              33    : (blank)
-              34    : "3. 월별 내부원가 현황"
-              35    : month column header row
-              36    : f.투입인력 총계    (formula)
-              37-40 : f.투입인력 sub-rows
-              41    : g.투입M/M 총계     (formula)
-              42-45 : g.투입M/M sub-rows
-              46    : h.산출가 총계      (formula)
-              47-50 : h.산출가 sub-rows  (manual – depends on head-count/grade)
-              51    : (blank)
-              52    : "4. 월별 영업이익 현황"
-              53    : month column header row
-              54    : i.영업이익 총계    (formula = row27 - row46 per column)
-              55-58 : i.영업이익 sub-rows(formula = c_sub - h_sub)
-              59    : j.영업이익율       (formula = IFERROR(i/a))
-              60    : k.인당평균영업이익 (formula = IFERROR(i/f))
             """
-            # mc: the data column for this tab's month in sections 2/3/4
-            # TOTAL DATABASE  → "P" (the TOTAL column aggregating all months)
-            # Monthly tab m   → month_cols[m-1]  (D for Jan, E for Feb, …)
             mc = "P" if is_total_db else month_cols[month_num - 1]
-
             rows = project_header_rows("TOTAL DB" if is_total_db else f"{month_num}월")
 
             # ── Section 1: 사전예측 (rows 8-13) ───────────────────────────────
@@ -418,230 +440,198 @@ class GoogleWorkspaceClient:
                 "", "구분", "총매출", "", "총매입", "", "순매출", "",
                 "내수율", "투입인력", "투입인력M/M", "투입원가", "", "영업이익", "", "영업이익율"
             ])
-            rows.append(["", "사전예측"] + [""] * 14)                              # Row 10 – manual
+            
+            # Row 10: 사전예측
+            if is_total_db:
+                rows.append(["", "사전예측", project.predicted_sales, "", project.predicted_purchases, "", "=C10-E10", "", "=G10/C10", "=F75", "=M75", "=N75", "", "=G10-L10", "", "=N10/C10"])
+            else:
+                rows.append(["", "사전예측", "='WPMS TOTAL DATABASE'!C10", "", "='WPMS TOTAL DATABASE'!E10", "", "='WPMS TOTAL DATABASE'!G10", "", "='WPMS TOTAL DATABASE'!I10", "='WPMS TOTAL DATABASE'!J10", "='WPMS TOTAL DATABASE'!K10", "='WPMS TOTAL DATABASE'!L10", "", "='WPMS TOTAL DATABASE'!N10", "", "='WPMS TOTAL DATABASE'!P10"])
 
-            # Row 11: 현재 달성치 — references section 2/3/4 cells
-            rows.append([
-                "", "현재 달성치",
-                f"={mc}17", "",           # 총매출  ← a.매출 총계
-                f"={mc}22", "",           # 총매입  ← b.매입 총계
-                f"={mc}27", "",           # 순매출  ← c.순매출 총계
-                f"=IFERROR({mc}32,\"\")", # 내수율  ← d.내수율
-                f"={mc}36",              # 투입인력 ← f.투입인력 총계
-                f"={mc}41",              # 투입M/M  ← g.투입M/M 총계
-                f"={mc}46", "",           # 투입원가 ← h.산출가 총계
-                f"={mc}54", "",           # 영업이익 ← i.영업이익 총계
-                f"=IFERROR({mc}59,\"\")", # 영업이익율 ← j.영업이익율
-            ])
-            # Row 12: 차액 = 현재달성치 - 사전예측
-            rows.append([
-                "", "차액",
-                "=C11-C10", "", "=E11-E10", "", "=G11-G10", "",
-                "", "=J11-J10", "=K11-K10", "=L11-L10", "",
-                "=N11-N10", "", ""
-            ])
-            # Row 13: 목표달성율 = 현재달성치 / 사전예측
-            rows.append([
-                "", "목표 달성율",
-                "=IFERROR(C11/C10,\"\")", "", "=IFERROR(E11/E10,\"\")", "",
-                "=IFERROR(G11/G10,\"\")", "", "", "=IFERROR(J11/J10,\"\")",
-                "", "=IFERROR(L11/L10,\"\")", "",
-                "=IFERROR(N11/N10,\"\")", "", ""
-            ])
-            rows.append([])                                                         # Row 14
+            # Row 11: 현재 달성치
+            if is_total_db:
+                rows.append(["", "현재 달성치", "=sum(D18:O21)", "", "=sum(D23:O26)", "", "=C11-E11", "", "=G11/C11", "=average(D36:O36)", "=sum(D41:O41)", "=sum(D47:O50)", "", "=G11-L11", "", "=N11/C11"])
+            else:
+                rows.append(["", "현재 달성치", f"={mc}17", "", f"={mc}22", "", f"={mc}27", "", f"=IFERROR({mc}32,\"\")", f"={mc}36", f"={mc}41", f"={mc}46", "", f"={mc}54", "", f"=IFERROR({mc}59,\"\")"])
+
+            # Row 12: 차액
+            rows.append(["", "차액", "=C11-C10", "", "=E11-E10", "", "=G11-G10", "", "", "=J11-J10", "", "=L11-L10", "", "=N11-N10", "", ""])
+            
+            # Row 13: 목표 달성율
+            rows.append(["", "목표 달성율", "=IFERROR(C11/C10,\"\")", "", "=IFERROR(E11/E10,\"\")", "", "=IFERROR(G11/G10,\"\")", "", "", "", "", "=IFERROR(L11/L10,\"\")", "", "=IFERROR(N11/N10,\"\")", "", ""])
+            
+            rows.append([]) # Row 14
 
             # ── Section 2: 월별 매출-매입 누적 종합 (rows 15-32) ──────────────
             rows.append(["", "2. 월별 매출-매입 누적 종합"])                       # Row 15
             rows.append(month_col_header_row())                                    # Row 16
 
-            # Helper: build a row with 12-column formulas + TOTAL column
-            def data_row(b, c, col_formulas: list, total_formula: str) -> list:
-                return ["", b, c] + col_formulas + [total_formula]
+            # helper to build row with values
+            def make_row(b, c, db_formulas, total_formula):
+                if is_total_db:
+                    return ["", b, c] + db_formulas + [total_formula]
+                else:
+                    m_vals = []
+                    for idx, col in enumerate(month_cols):
+                        if idx == month_num - 1:
+                            row_idx = len(rows) + 1
+                            m_vals.append(f"=index('WPMS TOTAL DATABASE'!{col}{row_idx},1,1)")
+                        else:
+                            m_vals.append("")
+                    return ["", b, c] + m_vals + [total_formula]
 
-            # ── a.매출 (rows 17-21) ──
             # Row 17: a.매출 총계
             if is_total_db:
-                rows.append(data_row("a.매출", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}17" for mn in range(1, 13)],
-                    "=SUM(D17:O17)"))
+                rows.append(["", "a.매출", "총계"] + [f"=sum({col}18:{col}21)" for col in month_cols] + ["=sum(D18:O21)"])
             else:
-                rows.append(data_row("a.매출", "총계",
-                    [f"=SUM({col}18:{col}21)" for col in month_cols],
-                    "=SUM(D17:O17)"))
-            # Rows 18-21: sub-rows (manual for monthly tabs)
+                rows.append(make_row("a.매출", "총계", [], "=sum(D17:O17)"))
+
+            # Rows 18-21: a.매출 sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 18 + i
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub, [""] * 12, f"=SUM(D{r}:O{r})"))
+                db_formulas = [f"=sumif('{mn}월'!$G$80:$I$107,$C${r},'{mn}월'!$I$80:$I$107)" for mn in range(1, 13)]
+                rows.append(make_row("", sub, db_formulas, f"=sum(D{r}:O{r})"))
 
-            # ── b.매입 (rows 22-26) ──
             # Row 22: b.매입 총계
             if is_total_db:
-                rows.append(data_row("b.매입", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}22" for mn in range(1, 13)],
-                    "=SUM(D22:O22)"))
+                rows.append(["", "b.매입", "총계"] + [f"=sum({col}23:{col}26)" for col in month_cols] + ["=sum(D23:O26)"])
             else:
-                rows.append(data_row("b.매입", "총계",
-                    [f"=SUM({col}23:{col}26)" for col in month_cols],
-                    "=SUM(D22:O22)"))
-            # Rows 23-26: sub-rows
+                rows.append(make_row("b.매입", "총계", [], "=sum(D22:O22)"))
+
+            # Rows 23-26: b.매입 sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 23 + i
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub, [""] * 12, f"=SUM(D{r}:O{r})"))
+                db_formulas = [f"=sumif('{mn}월'!$G$114:$I$141,$C${r},'{mn}월'!$I$114:$I$141)" for mn in range(1, 13)]
+                rows.append(make_row("", sub, db_formulas, f"=sum(D{r}:O{r})"))
 
-            # ── c.순매출 = a - b (rows 27-31) ──
-            # Row 27: 총계
+            # Row 27: c.순매출 총계
             if is_total_db:
-                rows.append(data_row("c.순매출\n(a-b)", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}27" for mn in range(1, 13)],
-                    "=SUM(D27:O27)"))
+                rows.append(["", "c.순매출\n(a-b)", "총계"] + [f"={col}17-{col}22" for col in month_cols] + ["=P17-P22"])
             else:
-                rows.append(data_row("c.순매출\n(a-b)", "총계",
-                    [f"={col}17-{col}22" for col in month_cols],
-                    "=SUM(D27:O27)"))
-            # Rows 28-31: sub-rows (derived from a_sub - b_sub)
+                rows.append(make_row("c.순매출\n(a-b)", "총계", [], "=sum(D27:O27)"))
+
+            # Rows 28-31: c.순매출 sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 28 + i
-                a_r = 18 + i   # a.매출 sub
-                b_r = 23 + i   # b.매입 sub
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub,
-                        [f"={col}{a_r}-{col}{b_r}" for col in month_cols],
-                        f"=SUM(D{r}:O{r})"))
+                a_r = 18 + i
+                b_r = 23 + i
+                db_formulas = [f"={col}{a_r}-{col}{b_r}" for col in month_cols]
+                rows.append(make_row("", sub, db_formulas, f"=sum(D{r}:O{r})"))
 
-            # ── d.내수율 = c/a (row 32) ──
+            # Row 32: d.내수율
             if is_total_db:
-                rows.append(data_row("d.내수율(c/a)", "",
-                    [f"='{mn}월'!{month_cols[mn-1]}32" for mn in range(1, 13)],
-                    "=IFERROR(P27/P17,\"\")"))
+                rows.append(["", "d.내수율(c/a)", ""] + [f"=IFERROR({col}27/{col}17,\"\")" for col in month_cols] + ["=IFERROR(P27/P17,\"\")"])
             else:
-                rows.append(data_row("d.내수율(c/a)", "",
-                    [f"=IFERROR({col}27/{col}17,\"\")" for col in month_cols],
-                    "=IFERROR(P27/P17,\"\")"))
+                rows.append(make_row("d.내수율(c/a)", "", [], "=P27/P17"))
 
-            rows.append([])  # Row 33 separator
+            rows.append([]) # Row 33
 
             # ── Section 3: 월별 내부원가 현황 (rows 34-50) ────────────────────
             rows.append(["", "3. 월별 내부원가 현황"])                             # Row 34
             rows.append(month_col_header_row())                                    # Row 35
 
-            # ── f.투입인력 (rows 36-40) ──
+            # Row 36: f.투입인력 총계
             if is_total_db:
-                rows.append(data_row("f.투입 인력", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}36" for mn in range(1, 13)],
-                    "=SUM(D36:O36)"))
+                rows.append(["", "f.투입 인력", "총계"] + [f"=sum({col}37:{col}40)" for col in month_cols] + ["=average(D36:O36)"])
             else:
-                rows.append(data_row("f.투입 인력", "총계",
-                    [f"=SUM({col}37:{col}40)" for col in month_cols],
-                    "=SUM(D36:O36)"))
+                rows.append(make_row("f.투입 인력", "총계", [], "=AVERAGE(D36:O36)"))
+
+            # Rows 37-40: f.투입인력 sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 37 + i
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub, [""] * 12, f"=SUM(D{r}:O{r})"))
+                db_formulas = [f"=COUNTIF('{mn}월'!$D$65:$D$74,$C${r})" for mn in range(1, 13)]
+                rows.append(make_row("", sub, db_formulas, f"=AVERAGE(D{r}:O{r})"))
 
-            # ── g.투입M/M (rows 41-45) ──
+            # Row 41: g.투입M/M 총계
             if is_total_db:
-                rows.append(data_row("g.투입 M/M", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}41" for mn in range(1, 13)],
-                    "=SUM(D41:O41)"))
+                rows.append(["", "g.투입 M/M", "총계"] + [f"=sum({col}42:{col}45)" for col in month_cols] + ["=sum(D41:O41)"])
             else:
-                rows.append(data_row("g.투입 M/M", "총계",
-                    [f"=SUM({col}42:{col}45)" for col in month_cols],
-                    "=SUM(D41:O41)"))
+                rows.append(make_row("g.투입 M/M", "총계", [], "=sum(D41:O41)"))
+
+            # Rows 42-45: g.투입M/M sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 42 + i
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub, [""] * 12, f"=SUM(D{r}:O{r})"))
+                db_formulas = [f"=sumif('{mn}월'!$D$65:$K$74,$C${r},'{mn}월'!$J$65:$J$74)" for mn in range(1, 13)]
+                rows.append(make_row("", sub, db_formulas, f"=sum(D{r}:O{r})"))
 
-            # ── h.산출가 (rows 46-50) ──
-            # 산출가 = 투입M/M × 직위 단가 (complex per-person calc → sub-rows manual)
+            # Row 46: h.산출가 총계
             if is_total_db:
-                rows.append(data_row("h.산출가", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}46" for mn in range(1, 13)],
-                    "=SUM(D46:O46)"))
+                rows.append(["", "h.산출가", "총계"] + [f"=sum({col}47:{col}50)" for col in month_cols] + ["=sum(D46:O46)"])
             else:
-                rows.append(data_row("h.산출가", "총계",
-                    [f"=SUM({col}47:{col}50)" for col in month_cols],
-                    "=SUM(D46:O46)"))
+                rows.append(make_row("h.산출가", "총계", [], "=sum(D46:O46)"))
+
+            # Rows 47-50: h.산출가 sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 47 + i
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub, [""] * 12, f"=SUM(D{r}:O{r})"))
+                db_formulas = [f"=sumif('{mn}월'!$D$65:$K$74,$C${r},'{mn}월'!$K$65:$K$74)" for mn in range(1, 13)]
+                rows.append(make_row("", sub, db_formulas, f"=sum(D{r}:O{r})"))
 
-            rows.append([])   # Row 51 separator
+            rows.append([]) # Row 51
 
             # ── Section 4: 월별 영업이익 현황 (rows 52-60) ───────────────────
             rows.append(["", "4. 월별 영업이익 현황"])                             # Row 52
             rows.append(month_col_header_row())                                    # Row 53
 
-            # ── i.영업이익 = c(순매출) - h(산출가) (rows 54-58) ──
             # Row 54: i.영업이익 총계
             if is_total_db:
-                rows.append(data_row("i.영업이익\n(c-h)", "총계",
-                    [f"='{mn}월'!{month_cols[mn-1]}54" for mn in range(1, 13)],
-                    "=SUM(D54:O54)"))
+                rows.append(["", "i.영업이익\n(c-h)", "총계"] + [f"={col}27-{col}46" for col in month_cols] + ["=sum(D54:O54)"])
             else:
-                rows.append(data_row("i.영업이익\n(c-h)", "총계",
-                    [f"={col}27-{col}46" for col in month_cols],
-                    "=SUM(D54:O54)"))
-            # Rows 55-58: sub-rows (c_sub - h_sub)
+                rows.append(make_row("i.영업이익\n(c-h)", "총계", [], "=sum(D54:O54)"))
+
+            # Rows 55-58: i.영업이익 sub-rows
             for i, sub in enumerate(["기획/운영", "제작", "매체", "기타"]):
                 r = 55 + i
-                c_r = 28 + i   # c.순매출 sub
-                h_r = 47 + i   # h.산출가 sub
-                if is_total_db:
-                    rows.append(data_row("", sub,
-                        [f"='{mn}월'!{month_cols[mn-1]}{r}" for mn in range(1, 13)],
-                        f"=SUM(D{r}:O{r})"))
-                else:
-                    rows.append(data_row("", sub,
-                        [f"={col}{c_r}-{col}{h_r}" for col in month_cols],
-                        f"=SUM(D{r}:O{r})"))
+                a_r = 28 + i
+                b_r = 47 + i
+                db_formulas = [f"={col}{a_r}-{col}{b_r}" for col in month_cols]
+                rows.append(make_row("", sub, db_formulas, f"=sum(D{r}:O{r})"))
 
-            # ── j.영업이익율 = i/a (row 59) ──
+            # Row 59: j.영업이익율
             if is_total_db:
-                rows.append(data_row("j.영업이익율(i/a)", "",
-                    [f"='{mn}월'!{month_cols[mn-1]}59" for mn in range(1, 13)],
-                    "=IFERROR(P54/P17,\"\")"))
+                rows.append(["", "j.영업이익율(i/a)", ""] + [f"=IFERROR({col}54/{col}17,\"\")" for col in month_cols] + ["=IFERROR(P54/P17,\"\")"])
             else:
-                rows.append(data_row("j.영업이익율(i/a)", "",
-                    [f"=IFERROR({col}54/{col}17,\"\")" for col in month_cols],
-                    "=IFERROR(P54/P17,\"\")"))
+                rows.append(make_row("j.영업이익율(i/a)", "", [], "=P54/P17"))
 
-            # ── k.인당평균영업이익 = i/f (row 60) ──
+            # Row 60: k.인당평균영업이익
             if is_total_db:
-                rows.append(data_row("k.인당 평균 영업이익(i/f)", "",
-                    [f"='{mn}월'!{month_cols[mn-1]}60" for mn in range(1, 13)],
-                    "=IFERROR(P54/P36,\"\")"))
+                rows.append(["", "k.인당 평균 영업이익(i/f)", ""] + [f"=IFERROR({col}54/{col}36,\"\")" for col in month_cols] + ["=IFERROR(P54/P36,\"\")"])
             else:
-                rows.append(data_row("k.인당 평균 영업이익(i/f)", "",
-                    [f"=IFERROR({col}54/{col}36,\"\")" for col in month_cols],
-                    "=IFERROR(P54/P36,\"\")"))
+                rows.append(make_row("k.인당 평균 영업이익(i/f)", "", [], "=P54/P36"))
+
+            rows.append([]) # Row 61
+            rows.append([]) # Row 62
+
+            # ── Section 5: TF투입인력 M/M 산출표 (rows 63-75) ─────────────────
+            if is_total_db:
+                rows.append(["", "5. 사전예측 TF투입인력 M/M 산출표"])             # Row 63
+                rows.append(["", "사업부문", "소속부서", "직능구분", "성명", "직위", "기본단가(월)", "투입일\n(21일 기준)", "일 평균 투입율", "M/M", "산출 원가\n(월 기준)", "", "M/Y", "산출 원가\n(연 기준)", "", "비고"]) # Row 64
+                for r_idx in range(65, 75):
+                    rows.append(["", "", "", "", "", "", f"=IFERROR(VLOOKUP(F{r_idx},OPT!$B$4:$C$9,2,0),\"\")", 21, "", f"=IFERROR((H{r_idx}/21)*I{r_idx},\"\")", f"=IF(J{r_idx}=\"\",\"\",ROUNDDOWN(G{r_idx}*J{r_idx},-2))", "", f"=IFERROR(J{r_idx}*12,\"\")", f"=IF(M{r_idx}=\"\",\"\",ROUNDDOWN(G{r_idx}*M{r_idx},-2))", "", ""])
+                rows.append(["", "총계", "", "", "", "", "", "", "", "=SUM(J65:J74)", "=SUM(K65:K74)", "", "=SUM(M65:M74)", "=SUM(N65:N74)", "", ""]) # Row 75
+            else:
+                rows.append(["", "5. TF투입인력 M/M 산출표"])                       # Row 63
+                rows.append(["", "사업부문", "소속부서", "직능구분", "성명", "직위", "기본단가(월)", "투입일\n(21일 기준)", "일 평균 투입율", "M/M", "산출 원가\n(월 기준)", "M/M 점유율", "매출 기여도", "", "영업이익 기여도"]) # Row 64
+                for r_idx in range(65, 75):
+                    rows.append(["", "", "", "", "", "", f"=IFERROR(VLOOKUP(F{r_idx},OPT!$B$4:$C$9,2,0),\"\")", 21, "", f"=IFERROR((H{r_idx}/21)*I{r_idx},\"\")", f"=IF(J{r_idx}=\"\",\"\",ROUNDDOWN(G{r_idx}*J{r_idx},-2))", f"=IFERROR(J{r_idx}/$J$75,\"\")", f"=IFERROR($C$11*L{r_idx},\"\")", "", f"=IFERROR(($C$11-$E$11-$L$11)*L{r_idx},\"\")"])
+                rows.append(["", "총계", "", "", "", "", "", "", "", "=SUM(J65:J74)", "=SUM(K65:K74)", "=SUM(L65:L74)", "=SUM(M65:M74)", "", "=SUM(O65:O74)"]) # Row 75
+
+            # ── Section 6 & 7: 매출/매입 세부 내역 (Only on Monthly tabs) ───────────
+            if not is_total_db:
+                rows.append([]) # Row 76
+                rows.append([]) # Row 77
+                rows.append(["", "6. 매출 세부 내역"])                             # Row 78
+                rows.append(["", "일자", "고객사", "프로젝트", "품목/내역", "", "구분", "", "공급가액", "부가세", "합계", "비고"]) # Row 79
+                for r_idx in range(80, 108):
+                    rows.append(["", "", "", "", "", "", "", "", "", f"=IF(I{r_idx}=\"\",\"\",ROUND(I{r_idx}*0.1))", f"=IF(I{r_idx}=\"\",\"\",I{r_idx}+J{r_idx})", ""])
+                rows.append(["", "합계", "", "", "", "", "", "", "=SUM(I80:I107)", "=SUM(J80:J107)", "=SUM(K80:K107)", ""]) # Row 108
+
+                rows.append([]) # Row 109
+                rows.append([]) # Row 110
+                rows.append([]) # Row 111
+                rows.append(["", "7. 매입 세부 내역"])                             # Row 112
+                rows.append(["", "일자", "거래처", "품목/내역", "", "구분", "", "공급가액", "부가세", "합계", "비고"]) # Row 113
+                for r_idx in range(114, 142):
+                    rows.append(["", "", "", "", "", "", "", "", "", f"=IF(I{r_idx}=\"\",\"\",ROUND(I{r_idx}*0.1))", f"=IF(I{r_idx}=\"\",\"\",I{r_idx}+J{r_idx})", ""])
+                rows.append(["", "합계", "", "", "", "", "", "", "=SUM(I114:I141)", "=SUM(J114:J141)", "=SUM(K114:K141)", ""]) # Row 142
 
             return rows
 
@@ -780,6 +770,9 @@ class GoogleWorkspaceClient:
                 
             # 2. Attempt to copy a master template spreadsheet if configured
             template_id = os.environ.get("WPMS_TEMPLATE_ID", "")
+            if not template_id:
+                template_id = "1nnv1bV5bUfe-fjdJh8OWPQYdob0HBhttRgCDNjwHmPA"
+                logger.info(f"WPMS_TEMPLATE_ID environment variable not found. Using default master template: {template_id}")
             spreadsheet_id = None
             
             if template_id:
@@ -791,6 +784,12 @@ class GoogleWorkspaceClient:
                     copied_file = self.drive_service.files().copy(**copy_args).execute()
                     spreadsheet_id = copied_file.get('id')
                     logger.info(f"[REAL] Created PMS Spreadsheet from template '{template_id}'. ID: {spreadsheet_id}")
+                    
+                    # Update metadata on the newly copied spreadsheet
+                    self._update_pms_metadata(spreadsheet_id, project)
+                    
+                    # Clear manual inputs (RAND formulas and old data) on copied monthly sheets
+                    self._clear_pms_manual_inputs(spreadsheet_id)
                 except Exception as copy_err:
                     logger.warning(f"[REAL] Failed to copy template '{template_id}': {copy_err}. Creating from scratch.")
 
@@ -829,31 +828,14 @@ class GoogleWorkspaceClient:
         try:
             # 1. PD and CD get 'writer' role
             writers = set(filter(None, [project.pd_email, project.cd_email]))
-            for email in writers:
-                try:
-                    permission_metadata = {
-                        'type': 'user',
-                        'role': 'writer',
-                        'emailAddress': email
-                    }
-                    permission_args = {
-                        'fileId': spreadsheet_id,
-                        'body': permission_metadata
-                    }
-                    if self.shared_drive_id and self.shared_drive_id != "root":
-                        permission_args['supportsAllDrives'] = True
-                    self.drive_service.permissions().create(**permission_args).execute()
-                    logger.info(f"[REAL] Shared PMS writer permission with: {email}")
-                except Exception as err:
-                    logger.warning(f"[REAL] Failed to share PMS writer permission with {email}: {err}. Skipping.")
-
             # 2. PM and members get 'reader' role
             readers = set(filter(None, [project.pm_email] + project.members)) - writers
-            for email in readers:
+
+            def share_role(email, role):
                 try:
                     permission_metadata = {
                         'type': 'user',
-                        'role': 'reader',
+                        'role': role,
                         'emailAddress': email
                     }
                     permission_args = {
@@ -863,12 +845,126 @@ class GoogleWorkspaceClient:
                     if self.shared_drive_id and self.shared_drive_id != "root":
                         permission_args['supportsAllDrives'] = True
                     self.drive_service.permissions().create(**permission_args).execute()
-                    logger.info(f"[REAL] Shared PMS reader permission with: {email}")
+                    logger.info(f"[REAL] Shared PMS {role} permission with: {email}")
                 except Exception as err:
-                    logger.warning(f"[REAL] Failed to share PMS reader permission with {email}: {err}. Skipping.")
+                    logger.warning(f"[REAL] Failed to share PMS {role} permission with {email}: {err}. Skipping.")
+
+            # Create union of tasks to execute in parallel
+            tasks = []
+            for email in writers:
+                tasks.append((email, 'writer'))
+            for email in readers:
+                tasks.append((email, 'reader'))
+
+            if tasks:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+                    futures = [executor.submit(share_role, email, role) for email, role in tasks]
+                    concurrent.futures.wait(futures)
         except Exception as e:
             logger.error(f"Failed to sync PMS spreadsheet permissions: {e}")
             raise e
+
+    def _update_pms_metadata(self, spreadsheet_id: str, project: Project) -> None:
+        """
+        Updates the newly copied spreadsheet with project information.
+        Updates cells in 'WPMS TOTAL DATABASE' sheet:
+          C5: Client Name
+          F5: Project Name
+          I5: Project Code ('BRX-[project_id[:8]]')
+          L5: Creation Date
+          O5: Period
+          C6: Business Sector
+          F6: Department
+          I6: Planning Director (PD) - Name
+          L6: Creative Director (CD) - Name
+          C10: Predicted Sales
+          E10: Predicted Purchases
+        """
+        if self.is_mock:
+            logger.info(f"[MOCK] Updating PMS metadata for spreadsheet '{spreadsheet_id}'")
+            return
+
+        import datetime
+        today_str = datetime.date.today().strftime("%Y. %m. %d")
+        month_str = datetime.date.today().strftime("%Y.%m")
+        
+        start_month = project.period_start or month_str
+        end_month = project.period_end or ""
+        period_str = f"{start_month} ~ {end_month}"
+        
+        project_code = f"BRX-{project.project_id[:8].upper()}"
+
+        data = [
+            {"range": "WPMS TOTAL DATABASE!C5", "values": [[project.client_name]]},
+            {"range": "WPMS TOTAL DATABASE!F5", "values": [[project.project_name]]},
+            {"range": "WPMS TOTAL DATABASE!I5", "values": [[project_code]]},
+            {"range": "WPMS TOTAL DATABASE!L5", "values": [[today_str]]},
+            {"range": "WPMS TOTAL DATABASE!O5", "values": [[period_str]]},
+            {"range": "WPMS TOTAL DATABASE!C6", "values": [[project.business_sector]]},
+            {"range": "WPMS TOTAL DATABASE!F6", "values": [[project.department]]},
+            {"range": "WPMS TOTAL DATABASE!I6", "values": [[project.pd_name or ""]]},
+            {"range": "WPMS TOTAL DATABASE!L6", "values": [[project.cd_name or ""]]},
+            {"range": "WPMS TOTAL DATABASE!C10", "values": [[project.predicted_sales]]},
+            {"range": "WPMS TOTAL DATABASE!E10", "values": [[project.predicted_purchases]]},
+        ]
+
+        try:
+            self.sheets_service.spreadsheets().values().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={"valueInputOption": "USER_ENTERED", "data": data}
+            ).execute()
+            logger.info(f"[REAL] Successfully updated project metadata in WPMS TOTAL DATABASE sheet for ID '{spreadsheet_id}'")
+        except Exception as e:
+            logger.error(f"Failed to update PMS metadata on Google Sheets: {e}")
+
+    def _clear_pms_manual_inputs(self, spreadsheet_id: str) -> None:
+        """
+        Clears the manual suki (manual input) cells and dropdown selection values in 1월..12월 tabs & WPMS TOTAL DATABASE:
+          - WPMS TOTAL DATABASE!D64:D74 (TF 직능구분 드롭다운)
+          - WPMS TOTAL DATABASE!F64:F74 (TF 직위 드롭다운)
+          - WPMS TOTAL DATABASE!I64:I74 (TF 투입율 수기)
+          - D64:D74 (TF 직능구분 드롭다운 in 1월..12월)
+          - F64:F74 (TF 직위 드롭다운 in 1월..12월)
+          - I64:I74 (TF 투입율 수기 in 1월..12월)
+          - E80:E107 (매출 품목/내역 수기)
+          - G80:G107 (매출 구분 드롭다운)
+          - I80:I107 (매출 공급가액 수기)
+          - E114:E141 (매입 품목/내역 수기)
+          - G114:G141 (매입 구분 드롭다운)
+          - I114:I141 (매입 공급가액 수기)
+        """
+        if self.is_mock:
+            logger.info(f"[MOCK] Clearing manual input fields and dropdowns on monthly & DATABASE tabs for spreadsheet '{spreadsheet_id}'")
+            return
+
+        ranges = [
+            "WPMS TOTAL DATABASE!D64:D74",
+            "WPMS TOTAL DATABASE!F64:F74",
+            "WPMS TOTAL DATABASE!I64:I74"
+        ]
+        for m in range(1, 13):
+            ranges.extend([
+                f"'{m}월'!D64:D74",
+                f"'{m}월'!F64:F74",
+                f"'{m}월'!I64:I74",
+                f"'{m}월'!E79:E107",
+                f"'{m}월'!E113:E141",
+                f"'{m}월'!G79:G107",
+                f"'{m}월'!G113:G141",
+                f"'{m}월'!I79:I107",
+                f"'{m}월'!I113:I141",
+                f"'{m}월'!J79:J80",
+                f"'{m}월'!J113:J115"
+            ])
+
+        try:
+            self.sheets_service.spreadsheets().values().batchClear(
+                spreadsheetId=spreadsheet_id,
+                body={"ranges": ranges}
+            ).execute()
+            logger.info(f"[REAL] Successfully cleared manual input fields on all monthly tabs for spreadsheet '{spreadsheet_id}'")
+        except Exception as e:
+            logger.error(f"Failed to clear manual input fields on Google Sheets: {e}")
 
     def get_mm_unit_cost(self, role: str) -> float:
         """
@@ -972,10 +1068,96 @@ class GoogleWorkspaceClient:
             }
 
             try:
-                response = requests.post(self.chat_webhook_url, json=card_body)
+                response = requests.post(self.chat_webhook_url, json=card_body, timeout=10)
                 if response.status_code == 200:
                     logger.info("[REAL] Successfully sent Google Chat notification card via Incoming Webhook.")
                 else:
                     logger.error(f"[REAL] Google Chat Webhook returned status code: {response.status_code}, response: {response.text}")
             except Exception as e:
                 logger.error(f"Failed to post notification message to Google Chat webhook: {e}")
+
+    def list_directory_users(self) -> List[Dict[str, str]]:
+        """
+        Lists all users in the Google Workspace domain directory.
+        Returns a list of dictionaries with 'name' and 'email'.
+        """
+        fallback_users = [
+            {"name": "\uc774\uc11d\uc6b0", "email": "249@brenxia.com"},
+            {"name": "\ubc15\uc900\ud615", "email": "charon@brenxia.com"},
+            {"name": "\uc870\uc900\ud615", "email": "psyche@brenxia.com"},
+            {"name": "\uae40\uc7ac\ub355", "email": "jdkim@brenxia.com"},
+            {"name": "BRENXIA MASTER", "email": "brenxia@brenxia.com"}
+        ]
+        
+        if self.is_mock or not self.directory_service:
+            logger.info("Using fallback directory list (MOCK or Directory API not configured).")
+            return fallback_users
+            
+        try:
+            results = self.directory_service.users().list(customer='my_customer', maxResults=500).execute()
+            users = results.get("users", [])
+            user_list = []
+            for u in users:
+                user_list.append({
+                    "name": u.get("name", {}).get("fullName", ""),
+                    "email": u.get("primaryEmail", "")
+                })
+            return user_list
+        except Exception as e:
+            logger.warning(f"Failed to list directory users from Admin API: {e}. Falling back to default list.")
+            return fallback_users
+
+    def read_pms_cells(self, spreadsheet_id: str, ranges: List[str]) -> List[List[List[Any]]]:
+        """
+        Reads values from multiple ranges in a spreadsheet in a single batch call.
+        Returns a list of values grids corresponding to each range.
+        """
+        if self.is_mock:
+            mock_results = []
+            for r in ranges:
+                if "C5" in r:
+                    mock_results.append([["MockClient"]])
+                elif "F5" in r:
+                    mock_results.append([["MockProject"]])
+                elif "I6" in r:
+                    mock_results.append([["\uc870\uc900\ud615"]])
+                elif "L6" in r:
+                    mock_results.append([["\uc774\uc11d\uc6b0"]])
+                elif "C6" in r:
+                    mock_results.append([["\uad11\uace0\uc0ac\uc5c5\ubd80\ubb38"]])
+                elif "F6" in r:
+                    mock_results.append([["\uae30\ud68d1\ubcf8\ubd80"]])
+                elif "O5" in r:
+                    mock_results.append([["2026.06 ~ 2026.12"]])
+                elif "C10" in r:
+                    mock_results.append([[1500000000]])
+                elif "E10" in r:
+                    mock_results.append([["=C10*70%"]])
+                elif "E65:E74" in r:
+                    mock_results.append([
+                        ["\uc774\uc11d\uc6b0"],
+                        ["\ubc15\uc900\ud615"],
+                        [""],
+                        [""],
+                        [""],
+                        [""],
+                        [""],
+                        [""],
+                        [""],
+                        [""]
+                    ])
+                else:
+                    mock_results.append([[""]])
+            return mock_results
+
+        try:
+            results = self.sheets_service.spreadsheets().values().batchGet(
+                spreadsheetId=spreadsheet_id,
+                ranges=ranges
+            ).execute()
+            
+            value_ranges = results.get("valueRanges", [])
+            return [vr.get("values", []) for vr in value_ranges]
+        except Exception as e:
+            logger.error(f"Failed to batch read spreadsheet cells: {e}")
+            raise e

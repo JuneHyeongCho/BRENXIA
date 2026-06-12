@@ -12,9 +12,18 @@ class Project:
     status: str      # "Proposal", "Execution", "Paused", "Lost", "Closure"
     pd_email: str    # Planning Director email
     cd_email: str    # Creative Director email
+    pm_name: str
+    pd_name: str
+    cd_name: str
     members: List[str] = field(default_factory=list)
     drive_folder_id: Optional[str] = None
     spreadsheet_id: Optional[str] = None
+    business_sector: str = "\uad11\uace0\uc0ac\uc5c5\ubd80\ubb38"
+    department: str = "\uae30\ud68d1\ubcf8\ubd80"
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    predicted_sales: int = 1000000000
+    predicted_purchases: str = "=C10*75%"
 
 @dataclass
 class WBSTask:

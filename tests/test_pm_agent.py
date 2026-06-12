@@ -82,13 +82,64 @@ class TestPMAgent(unittest.TestCase):
             members=[]
         )
         # Normal upload
-        prompt = self.agent.handle_file_upload(project.project_id, "02.Planning", "proposal_v0.1.pptx")
+        prompt = self.agent.handle_file_upload(project.project_id, "02.\uae30\ud68d", "proposal_v0.1.pptx")
         self.assertIsNone(prompt)
 
         # Upload final file triggers review prompt
-        prompt_final = self.agent.handle_file_upload(project.project_id, "02.Planning", "proposal_final.pptx")
+        prompt_final = self.agent.handle_file_upload(project.project_id, "02.\uae30\ud68d", "proposal_final.pptx")
         self.assertIsNotNone(prompt_final)
         self.assertIn("Review Pending", prompt_final)
+
+    def test_resolve_member(self):
+        # 1. Test live matching from default list
+        name, email = self.agent.resolve_member("@\uc774\uc11d\uc6b0")
+        self.assertEqual(name, "\uc774\uc11d\uc6b0")
+        self.assertEqual(email, "249@brenxia.com")
+        
+        name2, email2 = self.agent.resolve_member("\uc870\uc900\ud615")
+        self.assertEqual(name2, "\uc870\uc900\ud615")
+        self.assertEqual(email2, "psyche@brenxia.com")
+        
+        # 2. Test email input reverse lookup
+        name3, email3 = self.agent.resolve_member("charon@brenxia.com")
+        self.assertEqual(name3, "\ubc15\uc900\ud615")
+        self.assertEqual(email3, "charon@brenxia.com")
+
+        # 3. Test fallback
+        name4, email4 = self.agent.resolve_member("@testuser")
+        self.assertEqual(name4, "testuser")
+        self.assertEqual(email4, "testuser@brenxia.com")
+
+    def test_sync_project_from_spreadsheet(self):
+        project = self.agent.request_project_creation(
+            client_name="OldClient",
+            brand_name="OldBrand",
+            project_name="OldProject",
+            pm_email="pm@brenxia.com",
+            importance="Standard",
+            pd_email="@\uc870\uc900\ud615",
+            cd_email="@\uc774\uc11d\uc6b0",
+            members=[]
+        )
+        # Mock spreadsheet ID
+        project.spreadsheet_id = "mock_spreadsheet_id"
+        self.agent.db.save_project(project)
+        
+        # Call sync
+        synced_project = self.agent.sync_project_from_spreadsheet(project.project_id)
+        
+        # Verify fields synced from mock values inside read_pms_cells
+        self.assertEqual(synced_project.client_name, "MockClient")
+        self.assertEqual(synced_project.project_name, "MockProject")
+        self.assertEqual(synced_project.pd_name, "\uc870\uc900\ud615")
+        self.assertEqual(synced_project.pd_email, "psyche@brenxia.com")
+        self.assertEqual(synced_project.cd_name, "\uc774\uc11d\uc6b0")
+        self.assertEqual(synced_project.cd_email, "249@brenxia.com")
+        self.assertEqual(synced_project.predicted_sales, 1500000000)
+        self.assertEqual(synced_project.predicted_purchases, "=C10*70%")
+        # Verify members list mined from E65:E74 (contains '이석우' and '박준형')
+        self.assertIn("249@brenxia.com", synced_project.members)
+        self.assertIn("charon@brenxia.com", synced_project.members)
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,9 +39,18 @@ class LocalJSONDatabase:
             "status": project.status,
             "pd_email": project.pd_email,
             "cd_email": project.cd_email,
+            "pm_name": project.pm_name,
+            "pd_name": project.pd_name,
+            "cd_name": project.cd_name,
             "members": project.members,
             "drive_folder_id": project.drive_folder_id,
-            "spreadsheet_id": project.spreadsheet_id
+            "spreadsheet_id": project.spreadsheet_id,
+            "business_sector": project.business_sector,
+            "department": project.department,
+            "period_start": project.period_start,
+            "period_end": project.period_end,
+            "predicted_sales": project.predicted_sales,
+            "predicted_purchases": project.predicted_purchases
         }
         self.save_data()
 
@@ -49,19 +58,34 @@ class LocalJSONDatabase:
         proj_dict = self.data["projects"].get(project_id)
         if not proj_dict:
             return None
+        
+        # Fallbacks for old database compatibility
+        pm_email = proj_dict.get("pm_email", "")
+        pd_email = proj_dict.get("pd_email", "")
+        cd_email = proj_dict.get("cd_email", "")
+        
         return Project(
             project_id=proj_dict["project_id"],
             client_name=proj_dict["client_name"],
             brand_name=proj_dict["brand_name"],
             project_name=proj_dict["project_name"],
-            pm_email=proj_dict["pm_email"],
+            pm_email=pm_email,
             importance=proj_dict["importance"],
             status=proj_dict["status"],
-            pd_email=proj_dict["pd_email"],
-            cd_email=proj_dict["cd_email"],
+            pd_email=pd_email,
+            cd_email=cd_email,
+            pm_name=proj_dict.get("pm_name", pm_email.split("@")[0] if pm_email else ""),
+            pd_name=proj_dict.get("pd_name", pd_email.split("@")[0] if pd_email else ""),
+            cd_name=proj_dict.get("cd_name", cd_email.split("@")[0] if cd_email else ""),
             members=proj_dict.get("members", []),
             drive_folder_id=proj_dict.get("drive_folder_id"),
-            spreadsheet_id=proj_dict.get("spreadsheet_id")
+            spreadsheet_id=proj_dict.get("spreadsheet_id"),
+            business_sector=proj_dict.get("business_sector", "\uad11\uace0\uc0ac\uc5c5\ubd80\ubb38"),
+            department=proj_dict.get("department", "\uae30\ud68d1\ubcf8\ubd80"),
+            period_start=proj_dict.get("period_start"),
+            period_end=proj_dict.get("period_end"),
+            predicted_sales=proj_dict.get("predicted_sales", 1000000000),
+            predicted_purchases=proj_dict.get("predicted_purchases", "=C10*75%")
         )
 
     def list_projects(self) -> List[Project]:

@@ -24,6 +24,7 @@ class PMAgent:
             credentials_path=self.config.GOOGLE_CREDENTIALS_FILE,
             chat_webhook_url=os.environ.get("GOOGLE_CHAT_WEBHOOK_URL"),
             shared_drive_id=self.config.SHARED_DRIVE_ROOT_ID,
+            company_master_email=self.config.COMPANY_MASTER_EMAIL,
             is_mock=is_mock
         )
         self.dashboard_server = DashboardServer(
@@ -60,16 +61,27 @@ class PMAgent:
         importance: str,
         pd_email: str,
         cd_email: str,
-        members: List[str]
+        members: List[str] = None,
+        business_sector: str = "\uad11\uace0\uc0ac\uc5c5\ubd80\ubb38",
+        department: str = "\uae30\ud68d1\ubcf8\ubd80",
+        period_start: Optional[str] = None,
+        period_end: Optional[str] = None,
+        predicted_sales: int = 1000000000,
+        predicted_purchases: str = "=C10*75%"
     ) -> Project:
         """
         Implements Step 1 (Initiation) and verification rules:
         - Responsible Director Verification: PD and CD must be specified.
         - Hybrid Approval Line: Standard automatically deploys. Critical requests admin approval.
         """
+        # Resolve PM, PD, CD names and emails
+        resolved_pm_name, resolved_pm_email = self.resolve_member(pm_email)
+        resolved_pd_name, resolved_pd_email = self.resolve_member(pd_email)
+        resolved_cd_name, resolved_cd_email = self.resolve_member(cd_email)
+
         # 1. Verify directors are assigned
-        if not pd_email or not cd_email:
-            error_msg = "Responsible Director Verification Failed: PD and CD emails must be specified."
+        if not resolved_pd_email or not resolved_cd_email:
+            error_msg = "Responsible Director Verification Failed: PD and CD must be specified."
             logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -79,12 +91,21 @@ class PMAgent:
             client_name=client_name,
             brand_name=brand_name,
             project_name=project_name,
-            pm_email=pm_email,
+            pm_email=resolved_pm_email,
+            pm_name=resolved_pm_name,
             importance=importance,
             status="Proposal",
-            pd_email=pd_email,
-            cd_email=cd_email,
-            members=members
+            pd_email=resolved_pd_email,
+            pd_name=resolved_pd_name,
+            cd_email=resolved_cd_email,
+            cd_name=resolved_cd_name,
+            members=members or [],
+            business_sector=business_sector,
+            department=department,
+            period_start=period_start,
+            period_end=period_end,
+            predicted_sales=predicted_sales,
+            predicted_purchases=predicted_purchases
         )
 
         # 2. Hybrid Approval checks
@@ -188,8 +209,8 @@ class PMAgent:
 
         logger.info(f"New file '{file_name}' uploaded to standard subfolder '{folder_name}' of project '{project.project_name}'")
         
-        # Simulate pushing old file down into '_previous_version_archive' folder
-        logger.info(f"Performing version push-down. Moving previous files in '{folder_name}' to '_previous_version_archive' subfolder.")
+        # Simulate pushing old file down into archive folder
+        logger.info(f"Performing version push-down. Moving previous files in '{folder_name}' to '_\uc774\uc804\ubc84\uc804_\uc544\uce74\uc774\ube0c' subfolder.")
         
         # Check for final or v1.0 version keywords in filename (simulates matching *_최종_* or *_V1.0_*)
         normalized_filename = file_name.lower()
@@ -199,3 +220,202 @@ class PMAgent:
             return prompt_msg
         
         return None
+
+    def resolve_member(self, name_or_email: str) -> tuple[str, str]:
+        """
+        Resolves a name/mention/email using the Google Workspace Directory users list.
+        Returns a tuple of (Name, Email).
+        """
+        if not name_or_email:
+            return "", ""
+            
+        clean_str = name_or_email.strip().lstrip("@")
+        
+        # Call list_directory_users to get domain members
+        users = self.workspace.list_directory_users()
+        
+        # If it contains '@' and has a domain
+        if "@" in clean_str:
+            email = clean_str
+            # Reverse lookup name from directory
+            name = clean_str.split("@")[0]
+            for u in users:
+                if u["email"].lower() == email.lower():
+                    name = u["name"]
+                    break
+            return name, email
+            
+        # Try exact name match
+        for u in users:
+            if u["name"] == clean_str:
+                return u["name"], u["email"]
+                
+        # Try email prefix match (case-insensitive)
+        for u in users:
+            prefix = u["email"].split("@")[0]
+            if prefix.lower() == clean_str.lower():
+                return u["name"], u["email"]
+                
+        # Fallback to appending company domain
+        email = f"{clean_str}@brenxia.com"
+        return clean_str, email
+
+    def get_essential_creation_questions(self) -> List[Dict[str, Any]]:
+        """
+        Returns the list of 6 essential questions to ask the human PM for project creation.
+        """
+        return [
+            {
+                "field": "client_name",
+                "question": "Please enter the client name.",
+                "required": True
+            },
+            {
+                "field": "brand_name",
+                "question": "Please enter the brand name.",
+                "required": True
+            },
+            {
+                "field": "project_name",
+                "question": "Please enter the project name.",
+                "required": True
+            },
+            {
+                "field": "pd_handle",
+                "question": "Please enter the Planning Director (PD) name or mention (e.g. @Name).",
+                "required": True
+            },
+            {
+                "field": "cd_handle",
+                "question": "Please enter the Creative Director (CD) name or mention (e.g. @Name).",
+                "required": True
+            },
+            {
+                "field": "importance",
+                "question": "Please specify the project importance (Standard / Critical).",
+                "default": "Standard",
+                "required": False
+            }
+        ]
+
+    def sync_project_from_spreadsheet(self, project_id: str) -> Project:
+        """
+        Reads metadata and TF members from Google Spreadsheet and syncs it back to the DB.
+        Additionally, runs Space-to-Drive permission sync for the updated members.
+        """
+        project = self.db.get_project(project_id)
+        if not project:
+            raise ValueError(f"Project '{project_id}' not found in database.")
+            
+        if not project.spreadsheet_id:
+            logger.warning(f"Project '{project_id}' does not have a spreadsheet ID. Cannot sync.")
+            return project
+            
+        # Ranges to retrieve from WPMS TOTAL DATABASE sheet
+        ranges = [
+            "WPMS TOTAL DATABASE!C5",       # Client Name
+            "WPMS TOTAL DATABASE!F5",       # Project Name
+            "WPMS TOTAL DATABASE!I6",       # PD Name
+            "WPMS TOTAL DATABASE!L6",       # CD Name
+            "WPMS TOTAL DATABASE!C6",       # Business Sector
+            "WPMS TOTAL DATABASE!F6",       # Department
+            "WPMS TOTAL DATABASE!O5",       # Period
+            "WPMS TOTAL DATABASE!C10",      # Predicted Sales
+            "WPMS TOTAL DATABASE!E10",      # Predicted Purchases
+            "WPMS TOTAL DATABASE!E65:E74",  # TF Member Names
+        ]
+        
+        try:
+            results = self.workspace.read_pms_cells(project.spreadsheet_id, ranges)
+            
+            # Helper to get first element or default
+            def get_val(grid, default=""):
+                if grid and grid[0] and grid[0][0] is not None:
+                    return str(grid[0][0]).strip()
+                return default
+                
+            client_name = get_val(results[0], project.client_name)
+            project_name = get_val(results[1], project.project_name)
+            pd_name = get_val(results[2], project.pd_name)
+            cd_name = get_val(results[3], project.cd_name)
+            business_sector = get_val(results[4], project.business_sector)
+            department = get_val(results[5], project.department)
+            period_str = get_val(results[6], "")
+            predicted_sales_str = get_val(results[7], str(project.predicted_sales))
+            predicted_purchases = get_val(results[8], project.predicted_purchases)
+            
+            # Parse period_str (e.g. "2026.06 ~ 2026.12" or "2026.06 ~ ")
+            period_start = project.period_start
+            period_end = project.period_end
+            if period_str and "~" in period_str:
+                parts = period_str.split("~")
+                period_start = parts[0].strip() or period_start
+                period_end = parts[1].strip() or None
+                
+            # Parse predicted_sales as int
+            try:
+                # Remove commas or spaces
+                clean_sales = "".join(c for c in predicted_sales_str if c.isdigit())
+                predicted_sales = int(clean_sales) if clean_sales else project.predicted_sales
+            except Exception:
+                predicted_sales = project.predicted_sales
+                
+            # Resolve PD and CD emails
+            if pd_name:
+                resolved_pd_name, resolved_pd_email = self.resolve_member(pd_name)
+                project.pd_name = resolved_pd_name
+                project.pd_email = resolved_pd_email
+            if cd_name:
+                resolved_cd_name, resolved_cd_email = self.resolve_member(cd_name)
+                project.cd_name = resolved_cd_name
+                project.cd_email = resolved_cd_email
+                
+            # Resolve TF members from E65:E74
+            tf_grid = results[9] if len(results) > 9 else []
+            tf_emails = []
+            for row in tf_grid:
+                if row and row[0]:
+                    name = str(row[0]).strip()
+                    if name and name != "\ucd1d\uacc4": # Skip total sum row (unicode escape for 총계)
+                        res_name, res_email = self.resolve_member(name)
+                        if res_email:
+                            tf_emails.append(res_email)
+                            
+            # Deduplicate and update members
+            project.members = list(set(tf_emails))
+            
+            # Update project properties
+            project.client_name = client_name
+            project.project_name = project_name
+            project.business_sector = business_sector
+            project.department = department
+            project.period_start = period_start
+            project.period_end = period_end
+            project.predicted_sales = predicted_sales
+            project.predicted_purchases = predicted_purchases
+            
+            # Save to Database
+            self.db.save_project(project)
+            logger.info(f"Successfully synced project '{project_id}' data from spreadsheet.")
+            
+            # Sync permissions on drive folders & sheets for updated members
+            if project.drive_folder_id:
+                folder_ids = {
+                    "root": project.drive_folder_id,
+                    "00.\uace0\uac1d\uc0ac \uc81c\uacf5\uc790\ub8cc": "",
+                    "01.\uc81c\uc548": "",
+                    "02.\uae30\ud68d": "",
+                    "03.\uc81c\uc791": "",
+                    "04.\ubbf8\ub514\uc5b4": "",
+                    "05.\ud589\uc815": "",
+                    "06.PMS": ""
+                }
+                # Sync members permissions
+                self.workspace.sync_permissions(project, folder_ids)
+                self.workspace.sync_pms_permissions(project, project.spreadsheet_id)
+                
+        except Exception as e:
+            logger.error(f"Failed to sync project '{project_id}' from spreadsheet: {e}")
+            raise e
+            
+        return project
