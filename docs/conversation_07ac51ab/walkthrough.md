@@ -19,12 +19,18 @@
 ### 5. HTTP 웹훅 요청에 타임아웃 적용 (HTTP Webhook Timeout)
 * [google_workspace.py](file:///e:/Antigravity%20Project/vibe_cording/src/vibe_cording/google_workspace.py#L1045): 구글 챗 Incoming Webhook으로 알림 카드를 보낼 때 `timeout=10` 파라미터를 추가해 외부 네트워크 망 장애 시에도 프로그램이 무한히 정지하는 문제를 차단하였습니다.
 
+### 6. AD 에이전트 설계 및 기초 구현 (AD Agent Specification & Prototype)
+* [docs/ad_agent_spec.md](file:///e:/Antigravity%20Project/vibe_cording/docs/ad_agent_spec.md): AD 에이전트의 역할, 입력/출력 사양, ComfyUI 및 나노바나나 API 연동 프로세스에 대한 상세 명세 문서를 새로 작성하였습니다.
+* [ad_agent.py](file:///e:/Antigravity%20Project/vibe_cording/src/vibe_cording/ad_agent.py): 크리에이티브 브리프 텍스트 분석에 따른 프롬프트 JSON 설정값 생성 로직 및 시뮬레이션용 임시 비주얼 시안 이미지 생성 기능을 구현했습니다.
+
 ---
 
 ## 검증 결과 (Verification Results)
 
 ### 단위 테스트 (Unit Tests)
 - `tests/test_pm_agent.py` 실행 결과: **Pass (7개 테스트 성공)**
+- `tests/test_ad_agent.py` 실행 결과: **Pass (4개 테스트 성공)**
+- 전체 단위 테스트 통합 실행 결과: **Pass (총 11개 테스트 성공)**
 
 ### 실 API 통합 테스트 (Integration Test)
 - `tests/test_real_api.py` 실행 결과: **Pass (성공)**
