@@ -39,5 +39,15 @@ class TestADAgent(unittest.TestCase):
         with open(out_path, "rb") as f:
             self.assertEqual(f.read(), b"MOCK_PNG_DATA_FOR_AD_AGENT_VISUAL_DRAFT")
 
+    def test_generate_visual_draft_mock_fallback(self):
+        config = self.agent.generate_prompt_config("test")
+        out_path = os.path.join(self.test_dir, "real_draft.png")
+        result_path = self.agent.generate_visual_draft(config, out_path)
+        
+        self.assertEqual(result_path, out_path)
+        self.assertTrue(os.path.exists(out_path))
+        with open(out_path, "rb") as f:
+            self.assertEqual(f.read(), b"MOCK_PNG_DATA_FOR_AD_AGENT_VISUAL_DRAFT")
+
 if __name__ == "__main__":
     unittest.main()
