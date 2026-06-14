@@ -24,6 +24,7 @@
   - `dimensions`: 생성 이미지 크기 (width, height)
   - `parameters`: 생성 옵션 (steps, cfg_scale, sampler_name)
 * **비주얼 시안 (Visual Draft - PNG/JPG)**: 실제 생성 완료된 고화질 이미지 파일.
+* **워크플로우 아카이브 (Workflow Archive - JSON)**: 이미지 생성 시점에 실제 사용된 ComfyUI API 포맷의 워크플로우 그래프 구조 및 설정값 백업 파일.
 
 ---
 
@@ -35,7 +36,7 @@ graph TD
     Analyze --> Config[Prompt JSON 설정값 생성]
     Config --> Chat[구글 챗 스페이스에 [승인 요청] 카드 발송]
     Chat --> Approval{인간 디렉터의 승인?}
-    Approval -->|Approved 승인| CallAPI[ComfyUI / Nanobanana API 호출]
+    Approval -->|Approved 승인| CallAPI[로컬 RTX 4080 ComfyUI API 호출]
     Approval -->|Rejected 반려| Modify[프롬프트 수정 및 재기안]
     CallAPI --> Save[구글 드라이브 03.제작 폴더 저장]
     Save --> Insert[기획서 구글 문서에 이미지 자동 삽입]
@@ -43,7 +44,10 @@ graph TD
 
 1. **프롬프트 구성 단계**: 기획 텍스트를 파싱하여 감정적 깊이와 시각적 요소가 강조된 긍정/부정 프롬프트 구조(JSON)를 조립합니다.
 2. **사전 승인 단계**: 비용 및 리소스 낭비를 방지하기 위해 생성 API 호출 전, 구글 챗에 프롬프트 구성 카드를 노출하여 승인을 요청합니다.
-3. **API 연동 및 배포 단계**: 승인 시 지정된 API를 통해 비주얼을 생성하고 구글 드라이브의 `03.제작` 폴더 및 아카이브에 자동 저장 및 버저닝합니다.
+3. **API 연동 및 배포 단계**: 
+   * **로컬 RTX 4080 인프라 가동**: 로컬 PC(RTX 4080 GPU, VRAM 16GB) 환경에서 구동되는 ComfyUI API 엔드포인트(`http://127.0.0.1:8188`)를 호출하여 실시간 렌더링을 실행합니다.
+   * **자산 및 워크플로우 아카이빙**: 생성 완료된 이미지 파일명과 매핑하여 해당 이미지 생성에 실제로 적용된 **ComfyUI API Workflow JSON** 파일을 구글 드라이브의 `03.제작/_이전버전_아카이브` 폴더 및 DB에 함께 저장(Archive)합니다.
+   * **지속적 학습 데이터 자산화 (LoRA Fine-tuning Prep)**: 아카이빙된 `[이미지 + 프롬프트 텍스트 + 워크플로우 JSON]` 세트를 고유 자산 폴더에 누적하여, 추후 특정 브랜드 톤앤매너(예: 마스터카드/우리카드 전용 스타일) 학습(LoRA Fine-tuning) 시의 트레이닝 데이터셋(Training Dataset)으로 즉시 활용할 수 있도록 정렬 보관합니다.
 
 ---
 
