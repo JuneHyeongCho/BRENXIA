@@ -43,3 +43,22 @@ python -m uv add --dev pytest
 python -m uv build
 ```
 빌드된 결과물은 `dist/` 폴더에 생성됩니다.
+
+---
+
+## 문서 위계 및 카탈로그 (Documentation Hierarchy & Catalog)
+
+프로젝트와 에이전트 시스템에 관련된 모든 문서들은 다음과 같이 계층적으로 구조화되어 있습니다.
+
+### 1. 전사 및 직능별 규칙 (Rules & Policies)
+* [01_brenxia_rules.md](file:///d:/BRENXIA_Agent/docs/01_rules/01_brenxia_rules.md): BRENXIA AI 개발 및 협업 최상위 지침 규칙 문서.
+* [02_pmo_rules.md](file:///d:/BRENXIA_Agent/docs/01_rules/02_pmo_rules.md): 프로젝트 관리(PMO) 절차, 구글 워크스페이스 연동 및 폴더 라이프사이클 규칙.
+* [03_advertising_rules.md](file:///d:/BRENXIA_Agent/docs/01_rules/03_advertising_rules.md): 광고사업부 내 기획/제작 실무 R&R 및 11단계 광고 프로세스 지침.
+
+### 2. 에이전트 상세 명세서 (Specifications)
+* [01_pm_agent_spec.md](file:///d:/BRENXIA_Agent/docs/02_specs/01_pm_agent_spec.md): 프로젝트 매니저(PM) 에이전트 상세 설계 사양 및 동작 프로세스 명세서.
+* [02_ad_agent_spec.md](file:///d:/BRENXIA_Agent/docs/02_specs/02_ad_agent_spec.md): 아트디렉터(AD) 에이전트 이미지 생성 및 ComfyUI API 연동 명세서.
+
+### 3. 히스토리 및 개발 로그 (History & Logs)
+* [docs/03_history/](file:///d:/BRENXIA_Agent/docs/03_history): 이전 대화 기록 및 기능 개발 검증 보고서(Walkthrough) 보관소.
+
