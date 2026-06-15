@@ -5,9 +5,9 @@
 ---
 
 ## 1. 개요 및 역할 (Overview & Role)
-* **목적**: 기획, 제작, 미디어 등 다양한 하부 직능 에이전트들과 인간 실무진을 유기적으로 조율하는 오케스트레이터(Orchestrator) 역할을 수행합니다.
-* **주요 소통 채널**: 구글 챗(Google Chat) 스페이스를 기반으로 카드를 발송하여 인터랙티브한 소통(Interactive Communication)을 보좌합니다.
-* **데이터 관리**: 내부 데이터베이스(Database) 및 광고주별 PMS 구글 스프레드시트(Spreadsheet)를 동기화하여 프로젝트의 생애주기(Lifecycle)를 관리합니다.
+* **목적**: 기획, 제작, 미디어 등 다양한 하부 직능 에이전트들과 인간 실무진을 연동하고 실질적인 인프라 작업을 제어하는 **실행 레이어(Execution Layer - Python Core)** 역할을 수행합니다.
+* **통합 오케스트레이션**: 독자적으로 작동하는 대신 **페이퍼클립(Paperclip Company OS)**의 작업 제어 하에 구동되며, 통신과 메시지 발송은 **헤르메스(Hermes Agent)**를 연계 채널로 활용합니다.
+* **데이터 관리**: 프로젝트의 생애주기(Lifecycle) 및 광고주별 PMS 구글 스프레드시트(Spreadsheet)의 실제 쓰기/업데이트 작업을 처리합니다.
 
 ---
 
@@ -60,7 +60,7 @@
 
 ## 4. 아키텍처 및 구현 설계 (Implementation & Properties)
 
-PM 에이전트는 [pm_agent.py](file:///e:/Antigravity Project/vibe_cording/src/vibe_cording/pm_agent.py) 파일에 구현되어 있으며, 비동기 및 스레드 세이프(Thread-safe)하게 최적화된 구글 워크스페이스 클라이언트를 활용합니다.
+PM 에이전트는 [pm_agent.py](file:///e:/Antigravity Project/vibe_cording/src/vibe_cording/pm_agent.py) 파일에 구현되어 있으며, 비동기 및 스레드 세이프(Thread-safe)하게 최적화된 구글 워크스페이스 클라이언트를 활용합니다. 페이퍼클립(Paperclip) 및 헤르메스(Hermes)와 API 또는 CLI를 통해 연결되어 도구(Tools)로 가동됩니다.
 
 ```python
 # System Structure Reference (Non-korean code layout)
@@ -72,5 +72,6 @@ class PMAgent:
             credentials_path=self.config.GOOGLE_CREDENTIALS_FILE,
             is_mock=is_mock
         )
-        self.dashboard_server = DashboardServer(db=self.db)
+        # Instead of running a standalone server, it exposes API endpoints/CLI tools
+        # for Paperclip and Hermes Agent integration.
 ```
