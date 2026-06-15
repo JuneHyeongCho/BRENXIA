@@ -42,18 +42,19 @@ class TestPMAgent(unittest.TestCase):
         self.assertIsNotNone(saved_project)
         self.assertEqual(saved_project.project_name, "TestProject")
 
-    def test_project_creation_missing_directors_raises_error(self):
-        with self.assertRaises(ValueError):
-            self.agent.request_project_creation(
-                client_name="TestClient",
-                brand_name="TestBrand",
-                project_name="TestProject",
-                pm_email="pm@brenxia.com",
-                importance="Standard",
-                pd_email="",
-                cd_email="cd@brenxia.com",
-                members=[]
-            )
+    def test_project_creation_missing_directors_no_longer_raises_error(self):
+        project = self.agent.request_project_creation(
+            client_name="TestClient",
+            brand_name="TestBrand",
+            project_name="TestProject",
+            pm_email="pm@brenxia.com",
+            importance="Standard",
+            pd_email="",
+            cd_email="cd@brenxia.com",
+            members=[]
+        )
+        self.assertIsNotNone(project.project_id)
+        self.assertEqual(project.pd_email, "")
 
     def test_project_status_transitions(self):
         project = self.agent.request_project_creation(

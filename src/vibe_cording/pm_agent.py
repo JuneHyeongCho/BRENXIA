@@ -7,6 +7,7 @@ from .models import Project, WBSTask, ResourceMM
 from .db import LocalJSONDatabase
 from .google_workspace import GoogleWorkspaceClient
 from .dashboard import DashboardServer
+from .org_os import PaperclipOS, HermesAgent
 
 logger = logging.getLogger("vibe_cording.pm_agent")
 
@@ -27,12 +28,15 @@ class PMAgent:
             company_master_email=self.config.COMPANY_MASTER_EMAIL,
             is_mock=is_mock
         )
+        self.paperclip = PaperclipOS(db=self.db, workspace=self.workspace)
+        self.hermes = HermesAgent(db=self.db, workspace=self.workspace, paperclip=self.paperclip)
         self.dashboard_server = DashboardServer(
             host=self.config.DASHBOARD_HOST,
             port=self.config.DASHBOARD_PORT,
             db=self.db
         )
         self.is_mock = is_mock
+
 
     def start_dashboard(self):
         """
@@ -67,23 +71,18 @@ class PMAgent:
         period_start: Optional[str] = None,
         period_end: Optional[str] = None,
         predicted_sales: int = 1000000000,
-        predicted_purchases: str = "=C10*75%"
+        predicted_purchases: str = "=C10*75%",
+        ceo_approval_required: bool = False
     ) -> Project:
         """
         Implements Step 1 (Initiation) and verification rules:
-        - Responsible Director Verification: PD and CD must be specified.
-        - Hybrid Approval Line: Standard automatically deploys. Critical requests admin approval.
+        - Responsible Director Verification: PD and CD are verified but creation is not held.
+        - Hybrid Approval Line: Critical requests admin approval. Standard automatically deploys.
         """
         # Resolve PM, PD, CD names and emails
         resolved_pm_name, resolved_pm_email = self.resolve_member(pm_email)
-        resolved_pd_name, resolved_pd_email = self.resolve_member(pd_email)
-        resolved_cd_name, resolved_cd_email = self.resolve_member(cd_email)
-
-        # 1. Verify directors are assigned
-        if not resolved_pd_email or not resolved_cd_email:
-            error_msg = "Responsible Director Verification Failed: PD and CD must be specified."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        resolved_pd_name, resolved_pd_email = self.resolve_member(pd_email) if pd_email else ("", "")
+        resolved_cd_name, resolved_cd_email = self.resolve_member(cd_email) if cd_email else ("", "")
 
         project_id = str(uuid.uuid4())[:8]
         project = Project(
@@ -105,18 +104,17 @@ class PMAgent:
             period_start=period_start,
             period_end=period_end,
             predicted_sales=predicted_sales,
-            predicted_purchases=predicted_purchases
+            predicted_purchases=predicted_purchases,
+            ceo_approval_required=ceo_approval_required
         )
 
-        # 2. Hybrid Approval checks
-        if importance == "Critical":
-            logger.info(f"Critical Project '{project_name}' requested. Pending approval from Admin: {self.config.COMPANY_MASTER_EMAIL}")
-            # In a real environment, this triggers a Google Chat card to the Admin
-            # Here we auto-approve for flow continuity
-            self.approve_project_creation(project)
-        else:
-            logger.info(f"Standard Project '{project_name}' requested. Automatically deploying infrastructure.")
+        # Process creation through Hermes workflow
+        approved, status_msg = self.hermes.process_project_creation(project)
+        if approved:
             self._deploy_infrastructure(project)
+        else:
+            self.db.save_project(project)
+            logger.info(f"Project '{project_name}' requested. Pending approval from Admin: {self.config.COMPANY_MASTER_EMAIL}")
 
         return project
 
@@ -124,6 +122,10 @@ class PMAgent:
         """
         Deploys project assets after approval has been granted.
         """
+        import datetime
+        project.approval_status = "Approved"
+        project.approved_at = datetime.datetime.now().isoformat()
+        self.db.save_project(project)
         logger.info(f"Project '{project.project_name}' approved. Initiating infrastructure deployment.")
         self._deploy_infrastructure(project)
 
@@ -191,8 +193,12 @@ class PMAgent:
         if new_status == "Execution":
             # Change folder prefix to 'Execution' or equivalents
             logger.info(f"Project folder renamed to reflect 'Execution' status.")
+            project.step = 2
+            self.db.save_project(project)
         elif new_status == "Closure":
             # Enforce lock rules
+            project.step = 11
+            self.db.save_project(project)
             logger.info("Applying read-only locking to folders 00-04. Postponing 05 until final billing confirmation.")
         elif new_status == "Lost":
             # Mask sensitive data & archive
@@ -203,23 +209,8 @@ class PMAgent:
         Handles upload notifications, performs Auto Version Control (Push-down),
         and prompts for WBS status updates when versioning patterns match.
         """
-        project = self.db.get_project(project_id)
-        if not project:
-            return None
+        return self.hermes.handle_file_upload(project_id, folder_name, file_name)
 
-        logger.info(f"New file '{file_name}' uploaded to standard subfolder '{folder_name}' of project '{project.project_name}'")
-        
-        # Simulate pushing old file down into archive folder
-        logger.info(f"Performing version push-down. Moving previous files in '{folder_name}' to '_\uc774\uc804\ubc84\uc804_\uc544\uce74\uc774\ube0c' subfolder.")
-        
-        # Check for final or v1.0 version keywords in filename (simulates matching *_최종_* or *_V1.0_*)
-        normalized_filename = file_name.lower()
-        if "final" in normalized_filename or "v1.0" in normalized_filename:
-            prompt_msg = f"Should we update the WBS task status to 'Review Pending' for the newly uploaded final deliverable '{file_name}'?"
-            logger.info(f"Pattern matched. Prompt generated: {prompt_msg}")
-            return prompt_msg
-        
-        return None
 
     def resolve_member(self, name_or_email: str) -> tuple[str, str]:
         """

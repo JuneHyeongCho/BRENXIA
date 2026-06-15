@@ -1,12 +1,12 @@
 import json
 import os
 from typing import List, Dict, Any, Optional
-from .models import Project, WBSTask, ResourceMM
+from .models import Project, WBSTask, ResourceMM, AgentEntity
 
 class LocalJSONDatabase:
     def __init__(self, filepath: str = "data/db.json"):
         self.filepath = filepath
-        self.data = {"projects": {}, "tasks": {}, "resources": {}}
+        self.data = {"projects": {}, "tasks": {}, "resources": {}, "agents": {}}
         self._ensure_file_exists()
         self.load_data()
 
@@ -21,8 +21,13 @@ class LocalJSONDatabase:
         try:
             with open(self.filepath, "r", encoding="utf-8") as f:
                 self.data = json.load(f)
+                # Ensure all collections exist
+                self.data.setdefault("projects", {})
+                self.data.setdefault("tasks", {})
+                self.data.setdefault("resources", {})
+                self.data.setdefault("agents", {})
         except Exception:
-            self.data = {"projects": {}, "tasks": {}, "resources": {}}
+            self.data = {"projects": {}, "tasks": {}, "resources": {}, "agents": {}}
 
     def save_data(self):
         with open(self.filepath, "w", encoding="utf-8") as f:
@@ -50,7 +55,14 @@ class LocalJSONDatabase:
             "period_start": project.period_start,
             "period_end": project.period_end,
             "predicted_sales": project.predicted_sales,
-            "predicted_purchases": project.predicted_purchases
+            "predicted_purchases": project.predicted_purchases,
+            "step": project.step,
+            "approval_status": project.approval_status,
+            "lost_reason": project.lost_reason,
+            "ceo_approval_required": project.ceo_approval_required,
+            "approved_at": project.approved_at,
+            "temporary_deploy": project.temporary_deploy,
+            "created_at": project.created_at
         }
         self.save_data()
 
@@ -85,11 +97,19 @@ class LocalJSONDatabase:
             period_start=proj_dict.get("period_start"),
             period_end=proj_dict.get("period_end"),
             predicted_sales=proj_dict.get("predicted_sales", 1000000000),
-            predicted_purchases=proj_dict.get("predicted_purchases", "=C10*75%")
+            predicted_purchases=proj_dict.get("predicted_purchases", "=C10*75%"),
+            step=proj_dict.get("step", 1),
+            approval_status=proj_dict.get("approval_status", "Pending"),
+            lost_reason=proj_dict.get("lost_reason"),
+            ceo_approval_required=proj_dict.get("ceo_approval_required", False),
+            approved_at=proj_dict.get("approved_at"),
+            temporary_deploy=proj_dict.get("temporary_deploy", False),
+            created_at=proj_dict.get("created_at")
         )
 
     def list_projects(self) -> List[Project]:
         return [self.get_project(pid) for pid in self.data["projects"]]
+
 
     def save_wbs_tasks(self, tasks: List[WBSTask]):
         for t in tasks:
@@ -148,3 +168,30 @@ class LocalJSONDatabase:
             )
             for rd in proj_res.values()
         ]
+
+    def save_agent(self, agent: AgentEntity):
+        self.data["agents"][agent.agent_id] = {
+            "agent_id": agent.agent_id,
+            "name": agent.name,
+            "role": agent.role,
+            "email": agent.email,
+            "budget": agent.budget,
+            "status": agent.status
+        }
+        self.save_data()
+
+    def get_agent(self, agent_id: str) -> Optional[AgentEntity]:
+        agent_dict = self.data["agents"].get(agent_id)
+        if not agent_dict:
+            return None
+        return AgentEntity(
+            agent_id=agent_dict["agent_id"],
+            name=agent_dict["name"],
+            role=agent_dict["role"],
+            email=agent_dict["email"],
+            budget=agent_dict.get("budget", 0.0),
+            status=agent_dict.get("status", "Idle")
+        )
+
+    def list_agents(self) -> List[AgentEntity]:
+        return [self.get_agent(aid) for aid in self.data["agents"]]
