@@ -53,7 +53,7 @@ graph TD
 
 ## 4. 아키텍처 및 구현 설계 (Implementation Class)
 
-AD 에이전트는 [ad_agent.py](file:///e:/Antigravity Project/vibe_cording/src/vibe_cording/ad_agent.py) 파일에 구현되며, 초기 시뮬레이션 버전은 더미 이미지 파일을 파일 시스템에 생성하는 방식으로 동작합니다.
+AD 에이전트는 [ad_agent.py](file:///d:/BRENXIA_Agent/src/vibe_cording/ad_agent.py) 파일에 구현되며, 초기 시뮬레이션 버전은 더미 이미지 파일을 파일 시스템에 생성하는 방식으로 동작합니다.
 
 ```python
 # System Structure Reference (Non-korean code layout)

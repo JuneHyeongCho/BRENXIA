@@ -58,6 +58,7 @@ python -m uv build
 ### 2. 에이전트 상세 명세서 (Specifications)
 * [01_pm_agent_spec.md](file:///d:/BRENXIA_Agent/docs/02_specs/01_pm_agent_spec.md): 프로젝트 매니저(PM) 에이전트 상세 설계 사양 및 동작 프로세스 명세서.
 * [02_ad_agent_spec.md](file:///d:/BRENXIA_Agent/docs/02_specs/02_ad_agent_spec.md): 아트디렉터(AD) 에이전트 이미지 생성 및 ComfyUI API 연동 명세서.
+* [03_vps_deployment_guide.md](file:///d:/BRENXIA_Agent/docs/02_specs/03_vps_deployment_guide.md): 호스팅어 VPS 환경에서 헤르메스 에이전트 및 대시보드를 배포/구동하는 가이드.
 
 ### 3. 히스토리 및 개발 로그 (History & Logs)
 * [docs/03_history/](file:///d:/BRENXIA_Agent/docs/03_history): 이전 대화 기록 및 기능 개발 검증 보고서(Walkthrough) 보관소.

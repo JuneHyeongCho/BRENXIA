@@ -60,7 +60,7 @@
 
 ## 4. 아키텍처 및 구현 설계 (Implementation & Properties)
 
-PM 에이전트는 [pm_agent.py](file:///e:/Antigravity Project/vibe_cording/src/vibe_cording/pm_agent.py) 파일에 구현되어 있으며, 비동기 및 스레드 세이프(Thread-safe)하게 최적화된 구글 워크스페이스 클라이언트를 활용합니다. 페이퍼클립(Paperclip) 및 헤르메스(Hermes)와 API 또는 CLI를 통해 연결되어 도구(Tools)로 가동됩니다.
+PM 에이전트는 [pm_agent.py](file:///d:/BRENXIA_Agent/src/vibe_cording/pm_agent.py) 파일에 구현되어 있으며, 비동기 및 스레드 세이프(Thread-safe)하게 최적화된 구글 워크스페이스 클라이언트를 활용합니다. 페이퍼클립(Paperclip) 및 헤르메스(Hermes)와 API 또는 CLI를 통해 연결되어 도구(Tools)로 가동됩니다.
 
 ```python
 # System Structure Reference (Non-korean code layout)

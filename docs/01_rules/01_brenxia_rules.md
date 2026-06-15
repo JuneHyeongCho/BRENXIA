@@ -96,12 +96,12 @@ graph TD
 ### ② 직능 부문별 세부 규칙 문서 링크 (Job Function Rules Links)
 사내 직능별 세부 R&R 및 상세 작동 프로세스는 아래 분리된 문서를 참조하십시오.
 
-* **PMO 직능 부문**: [02_pmo_rules.md](file:///e:/Antigravity%20Project/vibe_cording/docs/01_rules/02_pmo_rules.md)
+* **PMO 직능 부문**: [02_pmo_rules.md](file:///d:/BRENXIA_Agent/docs/01_rules/02_pmo_rules.md)
   - 프로젝트 관리, 구글 드라이브 폴더 명명 및 인프라 구축 규칙
   - PMS 스프레드시트 수식 연동 및 데이터 누락 점검 규칙
   - 버전 관리(Version Push-down) 및 아카이빙(Archiving) 지침
   - 프로젝트 완료에 따른 접근 권한 차단 및 하이브리드 파일 잠금 규칙
-* **광고사업부 직능 부문**: [03_advertising_rules.md](file:///e:/Antigravity%20Project/vibe_cording/docs/01_rules/03_advertising_rules.md)
+* **광고사업부 직능 부문**: [03_advertising_rules.md](file:///d:/BRENXIA_Agent/docs/01_rules/03_advertising_rules.md)
   - 기획(Researcher, AP/AE, PD) 및 제작(CD, CW, AD, Designer) 세부 R&R
   - 11단계 광고 프로세스 지침 (11-Step Advertising Process Rules)
   - 인간 주도 작업물의 AI 검토 생략 규칙 (Human Bypass Rule)
