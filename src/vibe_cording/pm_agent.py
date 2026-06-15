@@ -6,7 +6,6 @@ from .config import Config
 from .models import Project, WBSTask, ResourceMM
 from .db import LocalJSONDatabase
 from .google_workspace import GoogleWorkspaceClient
-from .dashboard import DashboardServer
 from .org_os import PaperclipOS, HermesAgent
 
 logger = logging.getLogger("vibe_cording.pm_agent")
@@ -30,31 +29,8 @@ class PMAgent:
         )
         self.paperclip = PaperclipOS(db=self.db, workspace=self.workspace)
         self.hermes = HermesAgent(db=self.db, workspace=self.workspace, paperclip=self.paperclip)
-        self.dashboard_server = DashboardServer(
-            host=self.config.DASHBOARD_HOST,
-            port=self.config.DASHBOARD_PORT,
-            db=self.db
-        )
         self.is_mock = is_mock
 
-
-    def start_dashboard(self):
-        """
-        Starts the visual dashboard web server.
-        """
-        self.dashboard_server.start()
-
-    def stop_dashboard(self):
-        """
-        Stops the visual dashboard web server.
-        """
-        self.dashboard_server.stop()
-
-    def get_dashboard_url(self) -> str:
-        """
-        Returns the local address of the dashboard web application.
-        """
-        return f"http://{self.config.DASHBOARD_HOST}:{self.config.DASHBOARD_PORT}"
 
     def request_project_creation(
         self,

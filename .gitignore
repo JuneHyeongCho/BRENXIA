@@ -17,3 +17,7 @@ config/*.json
 # Local database
 data/real_db.json
 data/*.json
+
+# Scratch directory
+scratch/
+

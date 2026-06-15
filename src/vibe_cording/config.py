@@ -16,7 +16,4 @@ class Config:
     
     # Template ID for BRENXIA WPMS Google Spreadsheet
     WPMS_TEMPLATE_ID = os.environ.get("WPMS_TEMPLATE_ID", "template_spreadsheet_id")
-    
-    # Port for local web dashboard server
-    DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "8000"))
-    DASHBOARD_HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
+

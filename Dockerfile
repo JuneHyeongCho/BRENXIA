@@ -25,6 +25,8 @@ COPY . /app
 
 # Set PATH to use the virtual environment binaries directly
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src"
+
 
 # Ensure Python outputs immediately to terminal without buffering
 ENV PYTHONUNBUFFERED=1
