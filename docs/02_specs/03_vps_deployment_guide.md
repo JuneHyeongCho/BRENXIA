@@ -1,6 +1,8 @@
 # BRENXIA 에이전트 VPS 배포 가이드 (VPS Deployment Guide)
 
-이 문서는 호스팅어(Hostinger) 가상 사설 서버(VPS) 환경에서 헤르메스 에이전트(Hermes Agent) 및 페이퍼클립 OS(Paperclip OS) 대시보드 서버를 백그라운드 서비스(Background Service)로 구동하기 위한 배포 지침서입니다.
+이 문서는 호스팅어(Hostinger) 가상 사설 서버(VPS) 환경에서 헤르메스 에이전트(Hermes Agent) 및 페이퍼클립 OS(Paperclip OS) 대시보드 서버를 구동하기 위한 배포 지침서입니다.
+
+두 가지 구동 방식(Lightweight `uv` 직접 구동 방식, Docker 컨테이너 구동 방식)을 제공합니다.
 
 ---
 
@@ -12,95 +14,106 @@
 
 ---
 
-## 2. 배포 및 구동 단계 (Deployment Steps)
+## 2. Docker 컨테이너 배포 방식 (Docker Compose Deployment) - 권장 🌟
 
-터미널 창을 열고 아래 명령어를 순서대로 복사하여 실행해 주시기 바랍니다.
+도커(Docker)를 활용하면 리눅스 서버에 파이썬 설치나 의존성 충돌 걱정 없이 컨테이너화하여 매우 깔끔하고 안전하게 운영할 수 있습니다.
 
-### ① SSH를 이용한 서버 접속
-본인의 PC 터미널(Windows PowerShell 또는 CMD)을 열고 서버에 원격 접속합니다.
+### ① SSH를 이용한 서버 접속 및 패키지 설치
+본인의 PC 터미널을 열고 서버에 원격 접속 후 Docker를 설치합니다.
 ```bash
 ssh root@72.62.65.177
 ```
-> [!NOTE]
-> 처음 접속 시 authenticity 관련 경고가 뜨면 `yes`를 입력하고 설정해 두신 비밀번호를 입력합니다.
 
-### ② 시스템 패키지 업데이트 및 필수 도구 설치
-리눅스 서버의 기본 소프트웨어를 최신화하고 코드 다운로드를 위한 Git과 웹 연결 도구(curl)를 설치합니다.
+### ② 도커 및 도커 컴포즈 설치 (Docker Install)
+우분투 서버에 도커 엔진을 즉시 설치해 주는 호스팅어/우분투 공식 스크립트를 가동합니다.
 ```bash
-sudo apt-get update && sudo apt-get install -y git curl
+# Docker 공식 설치 스크립트 실행
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# Docker 서비스 활성화 및 시작
+sudo systemctl enable docker
+sudo systemctl start docker
 ```
 
-### ③ Astral `uv` 설치 (Python 가상 환경 관리자)
-BRENXIA 프로젝트는 파이썬 3.14.6 버전을 사용합니다. `uv` 도구를 설치하면 시스템 복잡한 설정 없이도 필요한 파이썬 버전을 서버가 자동으로 다운로드하고 가상환경을 구축해 줍니다.
-```bash
-# uv 설치 스크립트 실행
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 환경 변수 갱신 (uv 명령어를 즉시 사용 가능하도록 설정)
-source $HOME/.local/bin/env
-```
-
-### ④ 깃허브 저장소 클론 (Code Download)
+### ③ 깃허브 저장소 클론 (Code Download)
 작성된 최신 소스 코드를 서버로 내려받습니다.
 ```bash
+sudo apt-get install -y git
 git clone https://github.com/JuneHyeongCho/BRENXIA.git
 cd BRENXIA
 ```
 
-### ⑤ 환경 변수 및 설정 파일 구축 (.env)
-서버에서 외부 접근이 가능하도록 설정 파일을 생성해야 합니다. 대시보드를 외부 브라우저에서 볼 수 있도록 바인딩 주소를 `0.0.0.0`으로 설정합니다.
+### ④ 환경 설정 파일 작성 (.env)
+도커 컨테이너 내부로 주입할 설정값을 지정합니다.
 ```bash
-# 설정 파일 열기 (nano 편집기 사용)
 nano .env
 ```
-편집 창이 열리면 아래 내용을 복사하여 붙여넣고 저장합니다. (저장 단축키: `Ctrl + O` 누른 후 Enter ➡️ 종료: `Ctrl + X`)
+아래 설정을 복사해 붙여넣고 저장합니다. (저장 단축키: `Ctrl + O` ➡️ Enter ➡️ 종료: `Ctrl + X`)
 ```env
-# 대시보드 설정 (외부 접속 허용)
 DASHBOARD_HOST=0.0.0.0
 DASHBOARD_PORT=8000
-
-# 회사 이메일 설정
 COMPANY_MASTER_EMAIL=brenxia@brenxia.com
 CEO_EMAIL=psyche@brenxia.com
-
-# 구글 서비스 계정 키 파일 경로 (기본값)
-GOOGLE_CREDENTIALS_FILE=config/credentials.json
 ```
 
-> [!IMPORTANT]
-> **구글 서비스 계정 키 파일 업로드**
-> 실제 구글 드라이브 권한 관리를 가동하려면 구글 클라우드에서 다운로드받은 서비스 계정 키 JSON 파일 내용을 복사하여 `config/credentials.json`에 붙여넣어야 합니다. (아직 준비가 안 된 경우, 파일이 없을 시 프로그램은 자동으로 안전한 시뮬레이션용 **모의 실행 모드(Mock Mode)**로 안전하게 동작합니다.)
-> ```bash
-> mkdir -p config
-> nano config/credentials.json
-> # 서비스 계정 키 JSON의 텍스트 내용을 붙여넣고 저장합니다.
-> ```
-
-### ⑥ 대시보드 서버 백그라운드 구동 (Background Run)
-SSH 터미널 접속을 종료(로그아웃)하더라도 24시간 서버가 꺼지지 않도록 백그라운드로 프로세스를 가동합니다.
+### ⑤ 컨테이너 빌드 및 백그라운드 기동
 ```bash
-# 백그라운드 실행 실행 (로그는 data/dashboard.log 에 자동 누적)
-mkdir -p data
-nohup uv run python run_dashboard.py > data/dashboard.log 2>&1 &
+# docker-compose.yml 설정을 기반으로 백그라운드(-d) 빌드 및 기동
+docker compose up -d --build
+```
+
+### ⑥ 동작 상태 확인 및 로그 검토
+```bash
+# 도커 컨테이너 동작 상태 확인
+docker ps
+
+# 컨테이너 실시간 가동 로그 확인
+docker logs -f brenxia-agent
+```
+정상 작동이 확인되면 인터넷 브라우저에서 `http://72.62.65.177:8000`으로 바로 대시보드 조회가 가능합니다.
+
+---
+
+## 3. Lightweight `uv` 직접 구동 방식 (Direct Run with UV)
+
+도커를 사용하지 않고 우분투 가상 머신 위에 파이썬 환경을 가볍게 즉시 빌드하여 가동하는 방식입니다.
+
+### ① SSH 서버 접속
+```bash
+ssh root@72.62.65.177
+```
+
+### ② 기본 도구 및 uv 가상환경 관리자 설치
+```bash
+sudo apt-get update && sudo apt-get install -y git curl
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+### ③ 소스 코드 다운로드 및 스크립트 실행
+```bash
+git clone https://github.com/JuneHyeongCho/BRENXIA.git
+cd BRENXIA
+chmod +x scripts/deploy_vps.sh
+./scripts/deploy_vps.sh
 ```
 
 ---
 
-## 3. 작동 상태 점검 및 종료 (Server Maintenance)
+## 4. 구동 중단 및 관리 (Server Administration)
 
-### ① 정상 동작 확인
-실행 중인 서버의 동작 로그를 실시간으로 모니터링하여 오류 유무를 확인합니다.
+### ① 도커(Docker) 중단 및 재시작
 ```bash
-tail -n 50 -f data/dashboard.log
+# 컨테이너 서비스 중지
+docker compose down
+
+# 컨테이너 서비스 재시작
+docker compose restart
 ```
-> [!TIP]
-> 로그 모니터링 화면을 빠져나오려면 `Ctrl + C`를 누르시면 됩니다.
 
-로그 확인 중 `BRENXIA WPMS Dashboard is running!` 문구가 표시되면 성공입니다. 이제 크롬 등의 웹 브라우저를 켜고 주소창에 아래와 같이 입력하여 접속을 확인합니다.
-* **대시보드 접속 주소**: `http://72.62.65.177:8000`
-
-### ② 대시보드 서버 중단 (Stop Server)
-가동 중인 서버를 종료하고 싶을 때는 아래 명령어를 터미널에 입력하여 가동 중인 파이썬 프로세스를 안전하게 종료시킵니다.
+### ② `uv` 직접 구동 방식 중단
 ```bash
+# 백그라운드로 돌아가고 있는 python 프로세스 종료
 pkill -f run_dashboard.py
 ```
