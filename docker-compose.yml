@@ -1,6 +1,35 @@
 version: '3.8'
 
 services:
+  # 1. Database Service for Paperclip Dashboard
+  postgres:
+    image: postgres:15-alpine
+    container_name: brenxia-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: brenxia_db_pass_123
+      POSTGRES_DB: paperclip
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    ports:
+      - "5432:5432"
+
+  # 2. Paperclip Dashboard UI Platform
+  paperclip:
+    image: paperclipai/paperclip:latest
+    container_name: brenxia-paperclip
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:brenxia_db_pass_123@postgres:5432/paperclip
+      HERMES_API_URL: http://brenxia-agent:8000
+    depends_on:
+      - postgres
+    restart: always
+
+  # 3. BRENXIA Hermes Backend Agent Core (Python FastAPI)
   brenxia-agent:
     container_name: brenxia-agent
     build:
@@ -14,4 +43,10 @@ services:
       - ./google_chat_user_client_secret.json:/app/google_chat_user_client_secret.json
     env_file:
       - .env
+    depends_on:
+      - postgres
     restart: always
+
+volumes:
+  postgres_data:
+    driver: local
