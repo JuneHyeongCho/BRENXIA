@@ -11,15 +11,15 @@ WEBHOOK_URL = os.environ.get("GOOGLE_CHAT_WEBHOOK_URL")
 domain = "agent.brenxia.com"
 print(f"[{time.strftime('%X')}] Starting DNS propagation monitor for {domain}...")
 
-# Send an initial message to confirm the new 2-hour reporting rule
+# Send an initial message to confirm the new 1-hour reporting rule
 if WEBHOOK_URL:
     try:
-        requests.post(WEBHOOK_URL, json={"text": f"⏳ **[시스템 알림]** DNS 감시 레이더 설정 변경 완료. 지금부터 전파 완료 시까지 **2시간 간격**으로 생존(대기 중) 보고를 발송합니다."})
+        requests.post(WEBHOOK_URL, json={"text": f"⏳ **[시스템 알림]** DNS 감시 레이더 설정 변경 완료. 지금부터 전파 완료 시까지 **1시간 간격**으로 생존(대기 중) 보고를 발송합니다."})
     except Exception as e:
         pass
 
 last_notify_time = time.time()
-notify_interval = 2 * 60 * 60  # 2 hours in seconds
+notify_interval = 1 * 60 * 60  # 1 hour in seconds
 
 while True:
     try:
@@ -38,10 +38,10 @@ while True:
         sys.exit(0)
     except socket.gaierror:
         current_time = time.time()
-        # Check if 2 hours have passed
+        # Check if 1 hour has passed
         if current_time - last_notify_time >= notify_interval:
             progress_msg = f"📡 **[정기 생존 보고]** DNS 전파 대기 중...\n아직 `{domain}` 주소가 전파되지 않아 10초 주기로 계속 감시 중입니다."
-            print(f"\n[{time.strftime('%X')}] Sending 2-hour progress report...")
+            print(f"\n[{time.strftime('%X')}] Sending 1-hour progress report...")
             if WEBHOOK_URL:
                 try:
                     requests.post(WEBHOOK_URL, json={"text": progress_msg})
