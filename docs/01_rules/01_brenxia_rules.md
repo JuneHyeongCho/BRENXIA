@@ -106,7 +106,13 @@ graph TD
 * **데이터베이스 공유(Shared Database)**: 페이퍼클립이 관리하는 에이전트 목록(이름, 역할, 예산, 상태) 데이터베이스(Database)에 헤르메스도 실시간으로 접근하여 데이터를 조회하고 수정합니다.
 * **통합 에이전트 API(Unified Agent API)**: 실무 에이전트(리서처, 기획, 제작 등)의 실제 비즈니스 로직(Business Logic)은 독립된 단일 웹 서비스 API 형태로 실행되며, 헤르메스(구글 챗 명령)와 페이퍼클립(스케줄러/칸반 흐름) 양측 모두 이 공통 API를 호출(Call)하여 작업을 지시합니다.
 
-### ② 직능 부문별 세부 규칙 문서 링크 (Job Function Rules Links)
+### ② 역할 및 모니터링 인터페이스 분리 (Monitoring Interface Separation)
+헤르메스 에이전트의 내부 성장(학습)과 프로젝트 전체의 거시적 관리 효율성을 위해 다음과 같이 모니터링 채널을 분리하여 사용합니다.
+
+* **헤르메스 에이전트 (Hermes Desktop / Windows App)**: 로컬 윈도우 앱을 활용하여 헤르메스 에이전트 개별의 **자가학습(Self-learning) 진도, 스킬 파일(Skill Files) 튜닝, 장기 기억(Memory)** 등을 미시적으로 모니터링하고 직접 보완합니다.
+* **페이퍼클립 (Paperclip Dashboard / Web Browser)**: 웹 브라우저 대시보드를 활용하여 에이전시 전체의 **조직 구조(Org Chart), 프로젝트 WBS 진행 상황, 리소스 투입(M/M) 및 비용** 등을 거시적으로 모니터링하고 조율합니다.
+
+### ③ 직능 부문별 세부 규칙 문서 링크 (Job Function Rules Links)
 사내 직능별 세부 R&R 및 상세 작동 프로세스는 아래 분리된 문서를 참조하십시오.
 
 * **PMO 직능 부문**: [02_pmo_rules.md](file:///d:/BRENXIA_Agent/docs/01_rules/02_pmo_rules.md)
