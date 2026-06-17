@@ -15,21 +15,7 @@ services:
     ports:
       - "5432:5432"
 
-  # 2. Paperclip Dashboard UI Platform
-  paperclip:
-    image: paperclipai/paperclip:latest
-    container_name: brenxia-paperclip
-    ports:
-      - "3000:3000"
-    environment:
-      PORT: 3000
-      DATABASE_URL: postgresql://postgres:brenxia_db_pass_123@postgres:5432/paperclip
-      HERMES_API_URL: http://brenxia-agent:8000
-    depends_on:
-      - postgres
-    restart: always
-
-  # 3. BRENXIA Hermes Backend Agent Core (Python FastAPI)
+  # 2. BRENXIA Hermes Backend Agent Core (Python FastAPI)
   brenxia-agent:
     container_name: brenxia-agent
     build:
