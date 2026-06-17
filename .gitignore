@@ -19,6 +19,10 @@ google_chat_user_client_secret.json
 # Local database
 data/real_db.json
 data/*.json
+data/chroma_db/
+
+# PDFs and raw knowledge
+knowledge/
 
 # Scratch directory
 scratch/

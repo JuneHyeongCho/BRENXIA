@@ -3,5 +3,6 @@
     "**/.venv": true,
     "**/__pycache__": true,
     "**/.pytest_cache": true
-  }
+  },
+  "workbench.colorTheme": "Default Dark Modern"
 }
