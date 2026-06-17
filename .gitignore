@@ -13,6 +13,8 @@ wheels/
 .env
 config/credentials.json
 config/*.json
+google_credentials.json
+google_chat_user_client_secret.json
 
 # Local database
 data/real_db.json

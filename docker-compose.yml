@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  brenxia-agent:
+    container_name: brenxia-agent
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./google_credentials.json:/app/google_credentials.json
+      - ./google_chat_user_client_secret.json:/app/google_chat_user_client_secret.json
+    env_file:
+      - .env
+    restart: always

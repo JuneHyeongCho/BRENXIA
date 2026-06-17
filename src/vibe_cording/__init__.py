@@ -1,8 +1,15 @@
 from .config import Config
 from .models import Project, WBSTask, ResourceMM
+from .db import LocalJSONDatabase
 from .google_workspace import GoogleWorkspaceClient
 from .pm_agent import PMAgent
-from .ad_agent import ADAgent
 
-def hello() -> str:
-    return "Hello from BRENXIA Agent!"
+__all__ = [
+    "Config",
+    "Project",
+    "WBSTask",
+    "ResourceMM",
+    "LocalJSONDatabase",
+    "GoogleWorkspaceClient",
+    "PMAgent",
+]

@@ -1,61 +1,155 @@
-from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Dict, Any, Optional
 
-@dataclass
 class Project:
-    project_id: str
-    client_name: str
-    brand_name: str
-    project_name: str
-    pm_email: str
-    importance: str  # "Standard" or "Critical"
-    status: str      # "Proposal", "Execution", "Paused", "Lost", "Closure"
-    pd_email: str    # Planning Director email
-    cd_email: str    # Creative Director email
-    pm_name: str
-    pd_name: str
-    cd_name: str
-    members: List[str] = field(default_factory=list)
-    drive_folder_id: Optional[str] = None
-    spreadsheet_id: Optional[str] = None
-    business_sector: str = "\uad11\uace0\uc0ac\uc5c5\ubd80\ubb38"
-    department: str = "\uae30\ud68d1\ubcf8\ubd80"
-    period_start: Optional[str] = None
-    period_end: Optional[str] = None
-    predicted_sales: int = 1000000000
-    predicted_purchases: str = "=C10*75%"
-    step: int = 1                     # 1-11 advertising steps
-    approval_status: str = "Pending"  # "Pending", "Approved", "Bypassed", "Rejected"
-    lost_reason: Optional[str] = None
-    ceo_approval_required: bool = False
-    approved_at: Optional[str] = None
-    temporary_deploy: bool = False
-    created_at: Optional[str] = None  # ISO timestamp (e.g. "2026-06-15T15:12:00")
+    def __init__(
+        self,
+        project_id: str,
+        client_name: str,
+        brand_name: str,
+        project_name: str,
+        pm_email: str,
+        pd_email: Optional[str] = None,
+        cd_email: Optional[str] = None,
+        members: Optional[List[str]] = None,
+        status: str = "Proposal",
+        drive_folder_id: Optional[str] = None,
+        spreadsheet_id: Optional[str] = None,
+        predicted_sales: float = 0.0,
+        predicted_purchases: float = 0.0,
+        period_start: Optional[str] = None,
+        period_end: Optional[str] = None,
+        business_sector: Optional[str] = None,
+        department: Optional[str] = None
+    ) -> None:
+        self.project_id = project_id
+        self.client_name = client_name
+        self.brand_name = brand_name
+        self.project_name = project_name
+        self.pm_email = pm_email
+        self.pd_email = pd_email
+        self.cd_email = cd_email
+        self.members = members or []
+        self.status = status
+        self.drive_folder_id = drive_folder_id
+        self.spreadsheet_id = spreadsheet_id
+        self.predicted_sales = predicted_sales
+        self.predicted_purchases = predicted_purchases
+        self.period_start = period_start
+        self.period_end = period_end
+        self.business_sector = business_sector
+        self.department = department
 
-@dataclass
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "project_id": self.project_id,
+            "client_name": self.client_name,
+            "brand_name": self.brand_name,
+            "project_name": self.project_name,
+            "pm_email": self.pm_email,
+            "pd_email": self.pd_email,
+            "cd_email": self.cd_email,
+            "members": self.members,
+            "status": self.status,
+            "drive_folder_id": self.drive_folder_id,
+            "spreadsheet_id": self.spreadsheet_id,
+            "predicted_sales": self.predicted_sales,
+            "predicted_purchases": self.predicted_purchases,
+            "period_start": self.period_start,
+            "period_end": self.period_end,
+            "business_sector": self.business_sector,
+            "department": self.department
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Project":
+        return cls(
+            project_id=data["project_id"],
+            client_name=data["client_name"],
+            brand_name=data["brand_name"],
+            project_name=data["project_name"],
+            pm_email=data["pm_email"],
+            pd_email=data.get("pd_email"),
+            cd_email=data.get("cd_email"),
+            members=data.get("members"),
+            status=data.get("status", "Proposal"),
+            drive_folder_id=data.get("drive_folder_id"),
+            spreadsheet_id=data.get("spreadsheet_id"),
+            predicted_sales=data.get("predicted_sales", 0.0),
+            predicted_purchases=data.get("predicted_purchases", 0.0),
+            period_start=data.get("period_start"),
+            period_end=data.get("period_end"),
+            business_sector=data.get("business_sector"),
+            department=data.get("department")
+        )
+
 class WBSTask:
-    task_id: str
-    project_id: str
-    name: str
-    status: str       # "Pending", "In Progress", "Review Pending", "Approved"
-    start_date: str
-    end_date: str
-    assignee: str
+    def __init__(
+        self,
+        task_id: str,
+        project_id: str,
+        title: str,
+        assigned_to: Optional[str] = None,
+        start_date: Optional[str] = None,
+        due_date: Optional[str] = None,
+        status: str = "Waiting"
+    ) -> None:
+        self.task_id = task_id
+        self.project_id = project_id
+        self.title = title
+        self.assigned_to = assigned_to
+        self.start_date = start_date
+        self.due_date = due_date
+        self.status = status
 
-@dataclass
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "project_id": self.project_id,
+            "title": self.title,
+            "assigned_to": self.assigned_to,
+            "start_date": self.start_date,
+            "due_date": self.due_date,
+            "status": self.status
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WBSTask":
+        return cls(
+            task_id=data["task_id"],
+            project_id=data["project_id"],
+            title=data["title"],
+            assigned_to=data.get("assigned_to"),
+            start_date=data.get("start_date"),
+            due_date=data.get("due_date"),
+            status=data.get("status", "Waiting")
+        )
+
 class ResourceMM:
-    project_id: str
-    employee_name: str
-    role: str         # "Executive", "Director", "Senior", "Manager"
-    mm_value: float   # Man-Month fraction (e.g. 0.5)
-    days_input: float # Number of days input
-    cost: float       # Calculated monthly cost based on role and mm_value
+    def __init__(
+        self,
+        project_id: str,
+        email: str,
+        month: str,
+        mm: float
+    ) -> None:
+        self.project_id = project_id
+        self.email = email
+        self.month = month
+        self.mm = mm
 
-@dataclass
-class AgentEntity:
-    agent_id: str
-    name: str
-    role: str         # "Researcher", "AP_AE", "PD", "CD", "CW", "AD", "Designer", "Media"
-    email: str
-    budget: float = 0.0
-    status: str = "Idle" # "Idle", "Active", "Offline"
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "project_id": self.project_id,
+            "email": self.email,
+            "month": self.month,
+            "mm": self.mm
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ResourceMM":
+        return cls(
+            project_id=data["project_id"],
+            email=data["email"],
+            month=data["month"],
+            mm=data["mm"]
+        )

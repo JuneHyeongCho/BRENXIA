@@ -1,197 +1,98 @@
-import json
 import os
-from typing import List, Dict, Any, Optional
-from .models import Project, WBSTask, ResourceMM, AgentEntity
+import json
+import logging
+from typing import Dict, Any, List, Optional
+from .models import Project, WBSTask, ResourceMM
+
+logger = logging.getLogger("vibe_cording.db")
 
 class LocalJSONDatabase:
-    def __init__(self, filepath: str = "data/db.json"):
+    def __init__(self, filepath: str = "data/db.json") -> None:
         self.filepath = filepath
-        self.data = {"projects": {}, "tasks": {}, "resources": {}, "agents": {}}
-        self._ensure_file_exists()
-        self.load_data()
+        self.data: Dict[str, Any] = {
+            "projects": {},
+            "tasks": {},
+            "resource_mms": {}
+        }
+        self.load()
 
-    def _ensure_file_exists(self):
-        dir_name = os.path.dirname(self.filepath)
-        if dir_name and not os.path.exists(dir_name):
-            os.makedirs(dir_name, exist_ok=True)
+    def load(self) -> None:
+        """Loads data from the JSON file."""
         if not os.path.exists(self.filepath):
-            self.save_data()
+            logger.info(f"Database file {self.filepath} not found. Starting with empty database.")
+            parent_dir = os.path.dirname(self.filepath)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            self.save()
+            return
 
-    def load_data(self):
         try:
             with open(self.filepath, "r", encoding="utf-8") as f:
-                self.data = json.load(f)
-                # Ensure all collections exist
-                self.data.setdefault("projects", {})
-                self.data.setdefault("tasks", {})
-                self.data.setdefault("resources", {})
-                self.data.setdefault("agents", {})
-        except Exception:
-            self.data = {"projects": {}, "tasks": {}, "resources": {}, "agents": {}}
+                raw_data = json.load(f)
+                self.data = {
+                    "projects": raw_data.get("projects", {}),
+                    "tasks": raw_data.get("tasks", {}),
+                    "resource_mms": raw_data.get("resource_mms", {})
+                }
+            logger.info(f"Database successfully loaded from {self.filepath}.")
+        except Exception as e:
+            logger.error(f"Failed to load database from {self.filepath}: {e}")
 
-    def save_data(self):
-        with open(self.filepath, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, indent=4)
+    def save(self) -> None:
+        """Saves current database state to the JSON file."""
+        try:
+            with open(self.filepath, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, indent=2, ensure_ascii=False)
+            logger.debug(f"Database successfully saved to {self.filepath}.")
+        except Exception as e:
+            logger.error(f"Failed to save database to {self.filepath}: {e}")
 
-    def save_project(self, project: Project):
-        self.data["projects"][project.project_id] = {
-            "project_id": project.project_id,
-            "client_name": project.client_name,
-            "brand_name": project.brand_name,
-            "project_name": project.project_name,
-            "pm_email": project.pm_email,
-            "importance": project.importance,
-            "status": project.status,
-            "pd_email": project.pd_email,
-            "cd_email": project.cd_email,
-            "pm_name": project.pm_name,
-            "pd_name": project.pd_name,
-            "cd_name": project.cd_name,
-            "members": project.members,
-            "drive_folder_id": project.drive_folder_id,
-            "spreadsheet_id": project.spreadsheet_id,
-            "business_sector": project.business_sector,
-            "department": project.department,
-            "period_start": project.period_start,
-            "period_end": project.period_end,
-            "predicted_sales": project.predicted_sales,
-            "predicted_purchases": project.predicted_purchases,
-            "step": project.step,
-            "approval_status": project.approval_status,
-            "lost_reason": project.lost_reason,
-            "ceo_approval_required": project.ceo_approval_required,
-            "approved_at": project.approved_at,
-            "temporary_deploy": project.temporary_deploy,
-            "created_at": project.created_at
-        }
-        self.save_data()
-
+    # Project Operations
     def get_project(self, project_id: str) -> Optional[Project]:
-        proj_dict = self.data["projects"].get(project_id)
-        if not proj_dict:
-            return None
-        
-        # Fallbacks for old database compatibility
-        pm_email = proj_dict.get("pm_email", "")
-        pd_email = proj_dict.get("pd_email", "")
-        cd_email = proj_dict.get("cd_email", "")
-        
-        return Project(
-            project_id=proj_dict["project_id"],
-            client_name=proj_dict["client_name"],
-            brand_name=proj_dict["brand_name"],
-            project_name=proj_dict["project_name"],
-            pm_email=pm_email,
-            importance=proj_dict["importance"],
-            status=proj_dict["status"],
-            pd_email=pd_email,
-            cd_email=cd_email,
-            pm_name=proj_dict.get("pm_name", pm_email.split("@")[0] if pm_email else ""),
-            pd_name=proj_dict.get("pd_name", pd_email.split("@")[0] if pd_email else ""),
-            cd_name=proj_dict.get("cd_name", cd_email.split("@")[0] if cd_email else ""),
-            members=proj_dict.get("members", []),
-            drive_folder_id=proj_dict.get("drive_folder_id"),
-            spreadsheet_id=proj_dict.get("spreadsheet_id"),
-            business_sector=proj_dict.get("business_sector", "\uad11\uace0\uc0ac\uc5c5\ubd80\ubb38"),
-            department=proj_dict.get("department", "\uae30\ud68d1\ubcf8\ubd80"),
-            period_start=proj_dict.get("period_start"),
-            period_end=proj_dict.get("period_end"),
-            predicted_sales=proj_dict.get("predicted_sales", 1000000000),
-            predicted_purchases=proj_dict.get("predicted_purchases", "=C10*75%"),
-            step=proj_dict.get("step", 1),
-            approval_status=proj_dict.get("approval_status", "Pending"),
-            lost_reason=proj_dict.get("lost_reason"),
-            ceo_approval_required=proj_dict.get("ceo_approval_required", False),
-            approved_at=proj_dict.get("approved_at"),
-            temporary_deploy=proj_dict.get("temporary_deploy", False),
-            created_at=proj_dict.get("created_at")
-        )
+        project_dict = self.data["projects"].get(project_id)
+        if project_dict:
+            return Project.from_dict(project_dict)
+        return None
 
-    def list_projects(self) -> List[Project]:
-        return [self.get_project(pid) for pid in self.data["projects"]]
+    def save_project(self, project: Project) -> None:
+        self.data["projects"][project.project_id] = project.to_dict()
+        self.save()
 
+    def get_all_projects(self) -> List[Project]:
+        return [Project.from_dict(p) for p in self.data["projects"].values()]
 
-    def save_wbs_tasks(self, tasks: List[WBSTask]):
-        for t in tasks:
-            if t.project_id not in self.data["tasks"]:
-                self.data["tasks"][t.project_id] = {}
-            self.data["tasks"][t.project_id][t.task_id] = {
-                "task_id": t.task_id,
-                "project_id": t.project_id,
-                "name": t.name,
-                "status": t.status,
-                "start_date": t.start_date,
-                "end_date": t.end_date,
-                "assignee": t.assignee
-            }
-        self.save_data()
+    # Task Operations
+    def get_task(self, task_id: str) -> Optional[WBSTask]:
+        task_dict = self.data["tasks"].get(task_id)
+        if task_dict:
+            return WBSTask.from_dict(task_dict)
+        return None
 
-    def list_wbs_tasks(self, project_id: str) -> List[WBSTask]:
-        proj_tasks = self.data["tasks"].get(project_id, {})
+    def get_tasks_for_project(self, project_id: str) -> List[WBSTask]:
         return [
-            WBSTask(
-                task_id=td["task_id"],
-                project_id=td["project_id"],
-                name=td["name"],
-                status=td["status"],
-                start_date=td["start_date"],
-                end_date=td["end_date"],
-                assignee=td["assignee"]
-            )
-            for td in proj_tasks.values()
+            WBSTask.from_dict(t)
+            for t in self.data["tasks"].values()
+            if t.get("project_id") == project_id
         ]
 
-    def save_resources(self, resources: List[ResourceMM]):
-        for r in resources:
-            if r.project_id not in self.data["resources"]:
-                self.data["resources"][r.project_id] = {}
-            self.data["resources"][r.project_id][r.employee_name] = {
-                "project_id": r.project_id,
-                "employee_name": r.employee_name,
-                "role": r.role,
-                "mm_value": r.mm_value,
-                "days_input": r.days_input,
-                "cost": r.cost
-            }
-        self.save_data()
+    def save_task(self, task: WBSTask) -> None:
+        self.data["tasks"][task.task_id] = task.to_dict()
+        self.save()
 
-    def list_resources(self, project_id: str) -> List[ResourceMM]:
-        proj_res = self.data["resources"].get(project_id, {})
+    def delete_task(self, task_id: str) -> None:
+        if task_id in self.data["tasks"]:
+            del self.data["tasks"][task_id]
+            self.save()
+
+    # ResourceMM Operations
+    def get_resource_mms_for_project(self, project_id: str) -> List[ResourceMM]:
         return [
-            ResourceMM(
-                project_id=rd["project_id"],
-                employee_name=rd["employee_name"],
-                role=rd["role"],
-                mm_value=rd["mm_value"],
-                days_input=rd["days_input"],
-                cost=rd["cost"]
-            )
-            for rd in proj_res.values()
+            ResourceMM.from_dict(m)
+            for m in self.data["resource_mms"].values()
+            if m.get("project_id") == project_id
         ]
 
-    def save_agent(self, agent: AgentEntity):
-        self.data["agents"][agent.agent_id] = {
-            "agent_id": agent.agent_id,
-            "name": agent.name,
-            "role": agent.role,
-            "email": agent.email,
-            "budget": agent.budget,
-            "status": agent.status
-        }
-        self.save_data()
-
-    def get_agent(self, agent_id: str) -> Optional[AgentEntity]:
-        agent_dict = self.data["agents"].get(agent_id)
-        if not agent_dict:
-            return None
-        return AgentEntity(
-            agent_id=agent_dict["agent_id"],
-            name=agent_dict["name"],
-            role=agent_dict["role"],
-            email=agent_dict["email"],
-            budget=agent_dict.get("budget", 0.0),
-            status=agent_dict.get("status", "Idle")
-        )
-
-    def list_agents(self) -> List[AgentEntity]:
-        return [self.get_agent(aid) for aid in self.data["agents"]]
+    def save_resource_mm(self, resource_mm: ResourceMM) -> None:
+        key = f"{resource_mm.project_id}_{resource_mm.email}_{resource_mm.month}"
+        self.data["resource_mms"][key] = resource_mm.to_dict()
+        self.save()
