@@ -64,6 +64,7 @@ class PMAgent:
             # Provision Google Drive directories
             folder_ids = self.workspace.create_project_folders(project)
             project.drive_folder_id = folder_ids.get("root")
+            project.folder_ids = folder_ids
 
             if project.drive_folder_id:
                 # Share root directory with team members
@@ -84,7 +85,11 @@ class PMAgent:
             logger.info(f"Project creation completed successfully for ID: {project_id}")
         except Exception as e:
             logger.error(f"Failed to fully provision Google Workspace resources for project {project_id}: {e}")
-            # Keep the project in the DB, though directory ids may be incomplete
+            # Rollback: remove incomplete project from local DB to prevent inconsistent state
+            if project.project_id in self.db.data["projects"]:
+                del self.db.data["projects"][project.project_id]
+                self.db.save()
+            raise RuntimeError(f"Workspace provisioning failed. Project creation rolled back: {e}")
 
         return project
 
@@ -121,28 +126,13 @@ class PMAgent:
         if not project.drive_folder_id:
             raise ValueError(f"Project '{project_id}' has no associated Google Drive root folder.")
 
-        # Get parent folder ID on Drive
-        # First query for the subfolder name under project root
-        query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and '{project.drive_folder_id}' in parents and trashed = false"
-        list_args: Dict[str, Any] = {
-            "q": query,
-            "spaces": "drive",
-            "fields": "files(id, name)"
-        }
-        if self.workspace.shared_drive_id and self.workspace.shared_drive_id != "root":
-            list_args["supportsAllDrives"] = True
-            list_args["includeItemsFromAllDrives"] = True
-            list_args["corpora"] = "drive"
-            list_args["driveId"] = self.workspace.shared_drive_id
-
-        results = self.workspace.drive_service.files().list(**list_args).execute()
-        files = results.get("files", [])
-        if not files:
-            # Fallback to project root folder if target subfolder is not found
+        # Get parent folder ID on Drive using stored folder_ids instead of searching by name
+        target_folder_id = project.folder_ids.get(folder_name)
+        
+        if not target_folder_id:
+            # Fallback to project root folder if target subfolder ID is not found in DB
             target_folder_id = project.drive_folder_id
-            logger.warning(f"Target subfolder '{folder_name}' not found. Falling back to project root folder.")
-        else:
-            target_folder_id = files[0]["id"]
+            logger.warning(f"Target subfolder ID for '{folder_name}' not found. Falling back to project root folder.")
 
         # Determine mime type
         mime_type, _ = mimetypes.guess_type(file_path)

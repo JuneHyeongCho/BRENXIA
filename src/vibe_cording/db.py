@@ -39,13 +39,20 @@ class LocalJSONDatabase:
             logger.error(f"Failed to load database from {self.filepath}: {e}")
 
     def save(self) -> None:
-        """Saves current database state to the JSON file."""
+        """Saves current database state to the JSON file using atomic write."""
         try:
-            with open(self.filepath, "w", encoding="utf-8") as f:
+            tmp_filepath = f"{self.filepath}.tmp"
+            with open(tmp_filepath, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_filepath, self.filepath)
             logger.debug(f"Database successfully saved to {self.filepath}.")
         except Exception as e:
             logger.error(f"Failed to save database to {self.filepath}: {e}")
+            if os.path.exists(f"{self.filepath}.tmp"):
+                try:
+                    os.remove(f"{self.filepath}.tmp")
+                except OSError:
+                    pass
 
     # Project Operations
     def get_project(self, project_id: str) -> Optional[Project]:

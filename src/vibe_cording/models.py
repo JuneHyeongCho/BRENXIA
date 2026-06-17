@@ -14,6 +14,7 @@ class Project:
         status: str = "Proposal",
         drive_folder_id: Optional[str] = None,
         spreadsheet_id: Optional[str] = None,
+        folder_ids: Optional[Dict[str, str]] = None,
         predicted_sales: float = 0.0,
         predicted_purchases: float = 0.0,
         period_start: Optional[str] = None,
@@ -32,6 +33,7 @@ class Project:
         self.status = status
         self.drive_folder_id = drive_folder_id
         self.spreadsheet_id = spreadsheet_id
+        self.folder_ids = folder_ids or {}
         self.predicted_sales = predicted_sales
         self.predicted_purchases = predicted_purchases
         self.period_start = period_start
@@ -52,6 +54,7 @@ class Project:
             "status": self.status,
             "drive_folder_id": self.drive_folder_id,
             "spreadsheet_id": self.spreadsheet_id,
+            "folder_ids": self.folder_ids,
             "predicted_sales": self.predicted_sales,
             "predicted_purchases": self.predicted_purchases,
             "period_start": self.period_start,
@@ -74,6 +77,7 @@ class Project:
             status=data.get("status", "Proposal"),
             drive_folder_id=data.get("drive_folder_id"),
             spreadsheet_id=data.get("spreadsheet_id"),
+            folder_ids=data.get("folder_ids"),
             predicted_sales=data.get("predicted_sales", 0.0),
             predicted_purchases=data.get("predicted_purchases", 0.0),
             period_start=data.get("period_start"),
